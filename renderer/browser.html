@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self';style-src 'self';script-src 'self';img-src 'self' data:;">
+  <title>网页 MCP 助手</title>
+  <link rel="stylesheet" href="browser.css">
+</head>
+<body>
+  <header class="browser-toolbar">
+    <div class="toolbar-main">
+      <div class="nav-actions">
+        <button id="backButton" class="icon-button" title="后退" disabled>←</button>
+        <button id="forwardButton" class="icon-button" title="前进" disabled>→</button>
+        <button id="reloadButton" class="icon-button" title="刷新">↻</button>
+        <button id="homeButton" class="home-button"><span class="logo-mark">AI</span><b>ChatGPT</b></button>
+      </div>
+      <div class="page-state" id="pageState"><i></i><span>正在准备 ChatGPT…</span></div>
+      <div class="service-state">
+        <span id="downloadState" class="download-state"></span>
+        <span id="mcpState"><i></i>MCP</span>
+        <span id="tunnelState"><i></i>Tunnel</span>
+        <button id="managerButton" class="manager-button">设置</button>
+      </div>
+    </div>
+    <div class="workspace-bar">
+      <div class="workspace-label" id="workspaceLabel">
+        <span>当前工作区</span><strong id="activeWorkspace">未选择</strong>
+        <button id="workspaceHealthButton" class="workspace-health-button" type="button" aria-label="查看工作区同步状态" aria-expanded="false"><i></i></button>
+        <div id="workspaceHealthPopover" class="workspace-health-popover" hidden>
+          <b id="workspaceHealthName">未选择工作区</b>
+          <code id="workspaceHealthPath">-</code>
+          <div><span>状态</span><strong id="workspaceHealthState">等待检查</strong></div>
+          <div><span>最近检查</span><strong id="workspaceHealthTime">-</strong></div>
+        </div>
+      </div>
+      <div class="task-strip" id="taskStrip">
+        <i></i><b id="taskTitle">暂无任务</b><small id="taskStep"></small>
+        <span class="task-progress" aria-hidden="true"><span id="taskProgressBar"></span></span><span id="taskProgressText" class="task-progress-text"></span>
+        <button id="pauseTask">暂停</button><button id="resumeTask">继续</button><button id="stopTask">停止</button>
+      </div>
+      <div id="workspaceChips" class="workspace-chips"></div>
+      <select id="workspaceSelect" class="workspace-select" aria-label="全部工作区"><option value="">全部工作区</option></select>
+      <div id="switchState" class="switch-state"></div>
+      <button id="addAuthorizedRootQuick" class="add-workspace secondary-action" title="授权一个额外目录，无需切换主工作区">＋ 授权目录</button>
+      <button id="addWorkspace" class="add-workspace">＋ 添加工作区</button>
+    </div>
+  </header>
+  <main class="loading-stage">
+    <div class="loading-card"><div class="spinner"></div><h1>正在打开 ChatGPT</h1><p>聊天页面与本地工作区权限相互隔离。</p></div>
+  </main>
+  <script src="browser.js"></script>
+</body>
+</html>
