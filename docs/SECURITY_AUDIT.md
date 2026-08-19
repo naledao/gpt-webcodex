@@ -3,14 +3,13 @@
 ## 运行时结论
 
 - Electron 已由 31 升级到 43.2.0。
-- `nodeIntegration` 在本地管理页、浏览器壳和 ChatGPT 视图中均关闭。
-- 所有渲染进程均启用 `contextIsolation` 与 `sandbox`。
-- ChatGPT 远程页面没有 preload，也不能调用助手 IPC。
+- `nodeIntegration` 在本地管理页中关闭。
+- 管理渲染进程启用 `contextIsolation` 与 `sandbox`。
 - 主进程 IPC 统一验证调用来源必须为本地 `file://` 页面。
 - 禁止挂载 `<webview>`，默认 Session 拒绝权限请求。
-- ChatGPT 独立 Session 只允许受信任 HTTPS 域的剪贴板安全写入。
-- ChatGPT 导航和登录弹窗使用域名白名单；未知外链交给系统浏览器。
-- 管理页和浏览器壳均设置严格 CSP，不允许内联脚本。
+- 已删除 ChatGPT `WebContentsView`、持久化网页 Session、登录弹窗和网页 DOM 注入逻辑。
+- ChatGPT/OpenAI 外链统一通过 `shell.openExternal()` 交给系统默认浏览器，不在 Electron 内加载远程网页。
+- 管理页设置严格 CSP，不允许内联脚本。
 - Runtime Key 与 MCP Token 不进入渲染进程明文和普通日志。
 
 ## 依赖审计

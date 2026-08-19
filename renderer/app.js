@@ -682,13 +682,6 @@ function bindEvents() {
     try { unwrap(await api.regenerateMcpToken()); toast('认证 Token 已重新生成', '重新部署后生效。'); }
     catch (error) { toast('生成失败', error.message, 'error'); }
   });
-  $('#clearChatSession').addEventListener('click', async () => {
-    if (!confirm('这会退出内联 ChatGPT，并清除该助手保存的网页 Cookie 和缓存。是否继续？')) return;
-    try {
-      unwrap(await api.clearChatSession());
-      toast('ChatGPT 登录数据已清除', '返回聊天主窗口后可以重新登录。');
-    } catch (error) { toast('清除失败', error.message, 'error'); }
-  });
   $('#pythonInstall').addEventListener('click', async () => {
     setBusy(true, true);
     try { unwrap(await api.installPython()); toast('Python 安装完成', '请重新检测环境。'); await refreshSnapshot(); }

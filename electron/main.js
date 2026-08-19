@@ -7,16 +7,13 @@ const { SecretStore } = require('./services/secretStore');
 const { LogService } = require('./services/logService');
 const { EnvironmentService } = require('./services/environmentService');
 const { RuntimeOrchestrator } = require('./services/runtimeOrchestrator');
-const { ChatViewController } = require('./chatViewController');
 const { run } = require('./services/commandRunner');
 const { resolveProxy, clearProxyCache } = require('./services/proxyService');
 const { BuildVerificationService } = require('./services/buildVerificationService');
 const { HealthService } = require('./services/healthService');
 const { readJson, writeJsonAtomic } = require('./services/jsonStore');
 
-let chatWindow;
 let managerWindow;
-let chatController;
 let orchestrator;
 let forceQuit = false;
 let tray = null;
@@ -76,96 +73,19 @@ async function invokeSafely(action) {
   catch (error) { return { ok: false, error: safeMessage(error) }; }
 }
 
-function showChatWindow() {
-  const target = createChatWindow();
-  if (target.isMinimized()) target.restore();
-  target.show();
-  target.focus();
-  return target;
-}
-
 function createTray() {
   if (tray && !tray.isDestroyed()) return tray;
   const icon = nativeImage.createFromPath(appIconPath()).resize({ width: 16, height: 16 });
   tray = new Tray(icon);
   tray.setToolTip('网页 MCP 助手 · 后台运行中');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '打开网页 MCP 助手', click: () => showChatWindow() },
-    { label: '打开管理设置', click: () => { showChatWindow(); openManagerWindow(); } },
+    { label: '打开管理中心', click: () => openManagerWindow() },
     { type: 'separator' },
     { label: '退出助手（保留 MCP 服务）', click: () => { forceQuit = true; app.quit(); } }
   ]));
-  tray.on('click', () => showChatWindow());
-  tray.on('double-click', () => showChatWindow());
+  tray.on('click', () => openManagerWindow());
+  tray.on('double-click', () => openManagerWindow());
   return tray;
-}
-
-function createChatWindow() {
-  if (chatWindow && !chatWindow.isDestroyed()) {
-    chatWindow.show();
-    chatWindow.focus();
-    return chatWindow;
-  }
-
-  chatWindow = new BrowserWindow({
-    width: 1360,
-    height: 900,
-    minWidth: 960,
-    minHeight: 640,
-    show: false,
-    backgroundColor: '#f7f7f8',
-    title: '网页 MCP 助手',
-    icon: appIconPath(),
-    webPreferences: {
-      preload: path.join(__dirname, 'browserPreload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true
-    }
-  });
-  chatWindow.removeMenu();
-  chatWindow.loadFile(path.join(__dirname, '..', 'renderer', 'browser.html'));
-
-  chatController = new ChatViewController({
-    window: chatWindow,
-    log,
-    settings,
-    toolbarHeight: 112,
-    onState: (payload) => {
-      if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('chat:state', payload);
-    },
-    onDownload: (payload) => {
-      if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('chat:download', payload);
-    }
-  });
-  chatController.mount();
-
-  chatWindow.once('ready-to-show', () => chatWindow.show());
-  chatWindow.on('closed', () => {
-    if (chatController) chatController.dispose();
-    chatController = null;
-    chatWindow = null;
-    if (managerWindow && !managerWindow.isDestroyed()) managerWindow.destroy();
-  });
-  chatWindow.on('close', (event) => {
-    if (forceQuit) return;
-    event.preventDefault();
-    if (settings.load().keepRunningOnClose) {
-      if (managerWindow && !managerWindow.isDestroyed()) managerWindow.hide();
-      chatWindow.hide();
-      return;
-    }
-    if (!orchestrator) {
-      forceQuit = true;
-      app.quit();
-      return;
-    }
-    orchestrator.stop().catch((error) => log.error(error.message, { stage: 'close' })).finally(() => {
-      forceQuit = true;
-      app.quit();
-    });
-  });
-  return chatWindow;
 }
 
 function openManagerWindow() {
@@ -175,21 +95,15 @@ function openManagerWindow() {
     return managerWindow;
   }
 
-  const chatBounds = chatWindow && !chatWindow.isDestroyed() ? chatWindow.getBounds() : null;
   const width = 980;
   const height = 720;
-  const x = chatBounds ? Math.round(chatBounds.x + Math.max(0, (chatBounds.width - width) / 2)) : undefined;
-  const y = chatBounds ? Math.round(chatBounds.y + Math.max(0, (chatBounds.height - height) / 2)) : undefined;
 
   managerWindow = new BrowserWindow({
     width,
     height,
-    x,
-    y,
     minWidth: 820,
     minHeight: 580,
     show: false,
-    skipTaskbar: true,
     frame: false,
     transparent: false,
     backgroundColor: '#f7f7f8',
@@ -205,15 +119,32 @@ function openManagerWindow() {
   managerWindow.removeMenu();
   const initialTheme = settings.load().theme === 'light' ? 'light' : 'dark';
   managerWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { theme: initialTheme } });
+  managerWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url).catch(() => {});
+    return { action: 'deny' };
+  });
+  managerWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('file://')) return;
+    event.preventDefault();
+    if (/^https?:/i.test(url)) shell.openExternal(url).catch(() => {});
+  });
   managerWindow.once('ready-to-show', () => managerWindow.show());
   managerWindow.on('close', (event) => {
     if (forceQuit) return;
     event.preventDefault();
-    managerWindow.hide();
-    if (chatWindow && !chatWindow.isDestroyed()) {
-      chatWindow.show();
-      chatWindow.focus();
+    if (settings.load().keepRunningOnClose) {
+      managerWindow.hide();
+      return;
     }
+    if (!orchestrator) {
+      forceQuit = true;
+      app.quit();
+      return;
+    }
+    orchestrator.stop().catch((error) => log.error(error.message, { stage: 'close' })).finally(() => {
+      forceQuit = true;
+      app.quit();
+    });
   });
   managerWindow.on('closed', () => { managerWindow = null; });
   return managerWindow;
@@ -221,21 +152,8 @@ function openManagerWindow() {
 
 function registerIpc() {
   secureHandle('app:snapshot', (_event, options) => invokeSafely(() => orchestrator.snapshot(options || {})));
-  secureHandle('app:lightweight-snapshot', () => invokeSafely(() => orchestrator.lightweightSnapshot()));
-  secureHandle('workspace:hub', () => invokeSafely(async () => { const current = settings.load(); return { activeWorkspace: current.workspace, recentWorkspaces: current.recentWorkspaces || [] }; }));
   secureHandle('workspace:switch', (_event, workspace) => invokeSafely(() => orchestrator.switchWorkspace(workspace)));
   secureHandle('workspace:authorized-roots', (_event, roots) => invokeSafely(() => orchestrator.updateAuthorizedRoots(roots)));
-  secureHandle('workspace:choose-authorized-root', () => invokeSafely(async () => {
-    const result = await dialog.showOpenDialog(chatWindow, { properties: ['openDirectory', 'createDirectory'] });
-    if (result.canceled || !result.filePaths[0]) return null;
-    const selected = path.resolve(result.filePaths[0]);
-    const current = settings.load();
-    const roots = Array.isArray(current.authorizedRoots) ? current.authorizedRoots : [];
-    const key = selected.toLowerCase();
-    const merged = roots.some((item) => String(item).toLowerCase() === key) ? roots : [...roots, selected];
-    const snapshot = await orchestrator.updateAuthorizedRoots(merged);
-    return { selected, snapshot };
-  }));
   secureHandle('task-state:read', () => invokeSafely(async () => {
     let statePath;
     try { ({ statePath } = workspaceStatePaths()); } catch { return { exists: false, state: null }; }
@@ -296,25 +214,12 @@ function registerIpc() {
   secureHandle('build:run', (_event, options) => invokeSafely(() => buildVerification.execute(settings.load().workspace, options || {})));
   secureHandle('health:inspect', () => invokeSafely(() => healthService.inspect()));
   secureHandle('health:repair', () => invokeSafely(() => healthService.repair()));
-  secureHandle('workspace:choose-and-switch', () => invokeSafely(async () => { const result = await dialog.showOpenDialog(chatWindow, { properties: ['openDirectory', 'createDirectory'] }); if (result.canceled) return null; return orchestrator.switchWorkspace(result.filePaths[0]); }));
   secureHandle('manager:close', () => invokeSafely(async () => {
-    if (managerWindow && !managerWindow.isDestroyed()) managerWindow.hide();
-    if (chatWindow && !chatWindow.isDestroyed()) {
-      chatWindow.show();
-      chatWindow.focus();
-    }
-    return true;
-  }));
-  secureHandle('manager:open', () => invokeSafely(async () => { openManagerWindow(); return true; }));
-  secureHandle('chat:navigate', (_event, action) => invokeSafely(async () => chatController?.navigate(action)));
-  secureHandle('chat:status', () => invokeSafely(async () => chatController?.getState() || null));
-  secureHandle('chat:clear-session', () => invokeSafely(async () => {
-    if (!chatController) throw new Error('ChatGPT 页面尚未初始化。');
-    await chatController.clearSession();
+    if (managerWindow && !managerWindow.isDestroyed()) setImmediate(() => managerWindow?.close());
     return true;
   }));
   secureHandle('dialog:workspace', () => invokeSafely(async () => {
-    const result = await dialog.showOpenDialog(managerWindow || chatWindow, { properties: ['openDirectory', 'createDirectory'] });
+    const result = await dialog.showOpenDialog(managerWindow, { properties: ['openDirectory', 'createDirectory'] });
     return result.canceled ? '' : result.filePaths[0];
   }));
   secureHandle('settings:save', (_event, patch) => invokeSafely(async () => {
@@ -353,14 +258,6 @@ function registerIpc() {
   secureHandle('shell:open', (_event, target) => invokeSafely(async () => {
     const allowed = new Set(['chatgpt-connectors', 'openai-tunnels', 'openai-runtime-keys', 'tunnel-ui', 'coding-tools-source']);
     if (!allowed.has(target)) throw new Error('不允许打开该地址。');
-    if (target === 'chatgpt-connectors' && chatController) {
-      await chatController.openUrl('https://chatgpt.com/#settings/Connectors');
-      if (chatWindow && !chatWindow.isDestroyed()) {
-        chatWindow.show();
-        chatWindow.focus();
-      }
-      return true;
-    }
     const current = settings.load();
     const urls = {
       'chatgpt-connectors': 'https://chatgpt.com/#settings/Connectors',
@@ -376,7 +273,7 @@ function registerIpc() {
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
-app.on('second-instance', () => showChatWindow());
+app.on('second-instance', () => openManagerWindow());
 
 app.whenReady().then(async () => {
   app.setLoginItemSettings({ openAtLogin: Boolean(settings.load().startWithWindows), path: process.execPath });
@@ -398,10 +295,9 @@ app.whenReady().then(async () => {
   healthService = new HealthService({ settings, secrets, environment, orchestrator });
   log.on('entry', (payload) => sendManager('logs:entry', payload));
   registerIpc();
-  createChatWindow();
+  openManagerWindow();
   setInterval(() => orchestrator.supervise().then((status) => {
     sendManager('runtime:heartbeat', status);
-    if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('runtime:heartbeat', status);
   }).catch(() => {}), 5000).unref();
   log.info('网页 MCP 助手已启动');
   if (settings.load().autoStartServices && !orchestrator.isManuallyStopped()) {
@@ -414,7 +310,7 @@ app.on('window-all-closed', () => {
   if (!forceQuit && settings.load().keepRunningOnClose) return;
   if (!forceQuit) app.quit();
 });
-app.on('activate', () => showChatWindow());
+app.on('activate', () => openManagerWindow());
 
 
 

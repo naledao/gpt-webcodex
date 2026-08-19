@@ -8,6 +8,9 @@
 - [x] MCP Bearer 认证发现接口测试
 - [x] Electron 开发版启动测试
 - [x] Electron 打包版启动测试
+- [x] 启动后只显示本地管理中心
+- [x] 不包含 ChatGPT/WebContentsView 网页嵌入模块
+- [x] ChatGPT/OpenAI 外链使用系统默认浏览器
 - [x] NSIS 安装包构建
 - [x] 安装包 SHA-256 生成
 - [ ] Windows 代码签名证书签名

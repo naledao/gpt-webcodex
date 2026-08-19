@@ -33,14 +33,11 @@ test('HTTP sessions share one runtime and expose protocol health', () => {
   assert.match(server, /__control\/workspace/);
 });
 
-test('desktop runtime hot-switches workspaces and shows stale-task progress', () => {
+test('desktop runtime hot-switches workspaces and supervises stale tasks', () => {
   const orchestrator = read('electron/services/runtimeOrchestrator.js');
-  const browser = read('renderer/browser.js');
   assert.match(orchestrator, /switchMcpWorkspace/);
   assert.match(orchestrator, /MCP 与 Tunnel 均未重启/);
   assert.match(orchestrator, /async supervise\(\)/);
-  assert.match(browser, /仍在执行，并非卡死/);
-  assert.match(browser, /workspaceSelect/);
 });
 
 test('startup failure cleans runtime state and blocks automatic recovery until manual retry', () => {
@@ -54,14 +51,4 @@ test('startup failure cleans runtime state and blocks automatic recovery until m
   assert.match(orchestrator, /restart\(\{ automatic: true \}\)/);
   assert.match(orchestrator, /Coding Tools MCP 进程已提前退出/);
   assert.match(main, /start\(\{ automatic: true \}\)/);
-});
-
-test('browser task strip exposes stage progress and long-command elapsed time', () => {
-  const html = read('renderer/browser.html');
-  const browser = read('renderer/browser.js');
-  assert.match(html, /taskProgressBar/);
-  assert.match(html, /taskProgressText/);
-  assert.match(browser, /function progressForTask/);
-  assert.match(browser, /current_command/);
-  assert.match(browser, /阶段进度/);
 });

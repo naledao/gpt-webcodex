@@ -10,6 +10,8 @@
 
 做这个小助手的核心目的就是：**提供一个免配置的“平替低配版 Codex”**。它把 Python 运行时、网络隧道和目录权限隔离打包成了一个普通的 Windows `.exe` 软件。
 
+当前 Windows 版本只提供本地设置/管理中心，**不会在 Electron 内嵌 ChatGPT 或其他远程网页**。需要进入 ChatGPT、OpenAI Tunnels 或 Runtime Keys 时，会使用系统默认浏览器打开。
+
 启动助手后，你在熟悉的网页版 ChatGPT 聊天框里下指令，AI 就能：
 - 📁 **直接读取桌面与本地项目的代码文件**
 - ✏️ **直接在你的本地目录里新建文件、修改代码、修复 Bug**
@@ -34,6 +36,7 @@ Codex 额度不够用时，直接切到网页版 ChatGPT 接上这个助手，�
 
 1. 直接点击 GitHub 页面右侧的 **[Releases](../../releases)** 链接。
 2. 下载最新的 `.exe` 安装包（如 `web-mcp-assistant-setup-0.1.6.exe`），双击安装即可。
+3. 启动后直接进入管理中心，完成工作目录、Tunnel、Runtime Key、代理和启动行为配置。
 
 ---
 

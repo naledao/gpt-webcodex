@@ -9,8 +9,6 @@ if (fs.existsSync(transient)) {
 }
 
 const junk = [
-  'browser.css',
-  'chatViewController.js',
   "x[1]).join('",
   '{',
   '{{'

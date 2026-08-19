@@ -30,7 +30,6 @@ contextBridge.exposeInMainWorld('mcpAssistant', {
   openExternal: (target) => ipcRenderer.invoke('shell:open', target),
   installPython: () => ipcRenderer.invoke('environment:install-python'),
   detectProxy: () => ipcRenderer.invoke('environment:detect-proxy'),
-  clearChatSession: () => ipcRenderer.invoke('chat:clear-session'),
   onProgress: (listener) => {
     const wrapped = (_event, payload) => listener(payload);
     ipcRenderer.on('runtime:progress', wrapped);
