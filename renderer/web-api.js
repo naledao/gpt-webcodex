@@ -8,6 +8,10 @@
         cache: 'no-store'
       });
       const payload = await response.json().catch(() => ({ ok: false, error: `HTTP ${response.status}` }));
+      if (response.status === 401) {
+        location.replace('/login');
+        return { ok: false, error: payload?.error || '登录已失效。' };
+      }
       if (!response.ok && payload?.ok !== false) return { ok: false, error: `HTTP ${response.status}` };
       return payload;
     } catch (error) {
@@ -69,6 +73,7 @@
     logs: () => request('GET', '/api/logs'),
     clearLogs: () => request('DELETE', '/api/logs'),
     detectProxy: () => request('POST', '/api/proxy/detect'),
+    logout: () => request('POST', '/api/auth/logout'),
     openExternal,
     onProgress: (listener) => subscribe('runtime:progress', listener),
     onLog: (listener) => subscribe('logs:entry', listener),

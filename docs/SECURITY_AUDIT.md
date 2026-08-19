@@ -4,21 +4,23 @@
 
 ## 结论
 
-当前 `linux` 分支已从 Electron/Windows 桌面程序改为本地 Linux Web 管理服务。主要安全边界是“仅本机 loopback + 当前 Linux 用户文件权限 + 明确的工作区授权 + 只管理本程序记录的进程”。
+当前 `linux` 分支已从 Electron/Windows 桌面程序改为 Linux Web 管理服务。Web 管理端按当前部署要求监听所有网卡；其余安全边界包括当前 Linux 用户文件权限、明确的工作区授权和只管理本程序记录的进程。
 
-本版本不应直接暴露到局域网或公网。
+本版本可以直接从可信局域网访问。Web 页面、REST API 和 SSE 需要密码会话认证，但当前没有 TLS，不应暴露到公网或不可信网络。
 
 ## 网络暴露面
 
 默认监听：
 
 ```text
-Web 管理服务    127.0.0.1:17654
+Web 管理服务    0.0.0.0:17654
 Coding Tools MCP 127.0.0.1:18765
 Tunnel health/UI 127.0.0.1:18081
 ```
 
-`web/server.js` 显式绑定 `127.0.0.1`，没有 `0.0.0.0` 默认配置。
+`web/server.js` 默认绑定 `0.0.0.0`，可通过 `WEB_HOST` 覆盖。
+
+未登录页面请求会跳转到 `/login`，未登录 REST API 与 SSE 请求返回 `401`。密码只在服务端校验，默认密码以 SHA-256 校验值保存；可通过 `WEB_PASSWORD` 覆盖。成功登录后签发随机内存会话，Cookie 使用 `HttpOnly`、`SameSite=Strict` 和 24 小时有效期，服务重启后会话立即失效。
 
 静态文件采用白名单映射，只提供管理页面所需的 HTML、JS 和 CSS，不把仓库目录作为通用静态文件根目录暴露。
 
@@ -69,6 +71,12 @@ MCP_RUNTIME_HEADER_VALUE
 这样避免把真实密钥直接拼进 `tunnel-client` 命令行参数。
 
 日志服务会对常见密钥形态做脱敏；REST API 也不会回显用户提交的 Runtime API Key。
+
+## 原生发布资源
+
+SEA 二进制内嵌的网页、MCP 源码和 Tunnel 客户端会释放到当前用户的 XDG cache。构建 ID 来自资源内容摘要，不同构建使用不同目录；目录权限为 `0700`，普通资源文件为 `0600`，Tunnel 可执行文件为 `0700`。密钥不会写入该缓存目录，仍只保存在 XDG config 下。
+
+原生 ELF 省去系统 Node.js 依赖，但不是完全静态系统镜像：仍依赖目标 Linux 的 glibc 和 Python 3.11+。arm64 发布嵌入官方 arm64 Tunnel，不需要 QEMU。
 
 ## 工作区访问边界
 
@@ -164,15 +172,15 @@ Linux Web 分支已经移除：
 
 ## 剩余风险与上线限制
 
-### 1. 不允许远程绑定
+### 1. 局域网管理端没有 TLS
 
-当前 API 没有面向远程访问设计完整的登录、CSRF/Origin 防护和 TLS。只要保持 `127.0.0.1` 绑定，这个风险受本机边界限制。
+当前管理端已有密码会话认证，但 HTTP 传输没有 TLS。监听 `0.0.0.0` 时，同一网络内的被动监听者仍可能看到登录请求或会话流量，因此只适合可信局域网。
 
-如果未来需要监听非 loopback 地址，必须先增加：
+在不可信网络中使用前必须增加：
 
-- 强认证；
-- CSRF/Origin 校验；
 - TLS；
+- 更强的身份认证与密码轮换；
+- CSRF/Origin 校验；
 - 更细粒度 API 授权；
 - 速率限制和审计日志。
 
@@ -204,7 +212,8 @@ command -v node
 node --version
 python3 --version
 file resources/tools/tunnel-client
-resources/tools/tunnel-client --version
+resources/tools/tunnel-client run --help
+npm run build:native
 ```
 
 最后确认 Web、MCP 和 Tunnel health/UI 都只监听 loopback。

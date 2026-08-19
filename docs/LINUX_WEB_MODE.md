@@ -304,19 +304,19 @@ build:progress
 
 ## 8. Web 服务安全
 
-第一版只监听：
+Web 管理服务默认监听：
 
 ```text
-127.0.0.1
+0.0.0.0
 ```
 
-不要默认监听 `0.0.0.0`。
+这样同一局域网内的设备可以直接打开管理页面。页面、REST API 和 SSE 统一使用服务端密码会话认证，登录页只要求输入密码。
 
-因为管理接口具有保存密钥、启动进程、执行构建和修改工作区的能力，不能直接暴露到局域网或公网。
+会话 Cookie 使用 `HttpOnly` 和 `SameSite=Strict`，服务重启后失效。默认密码可通过 `WEB_PASSWORD` 覆盖。当前没有 TLS，只应在可信局域网使用，不应映射到公网。
 
 MCP 和 Tunnel 健康端口同样继续绑定 `127.0.0.1`。
 
-远程访问不属于第一版范围；以后如有需要，再增加认证、TLS、CSRF/Origin 校验和反向代理。
+如需恢复仅本机访问，使用 `WEB_HOST=127.0.0.1 npm start`。需要跨越不可信网络时，应增加 TLS、更细粒度授权和反向代理。
 
 ## 9. package.json 调整
 
@@ -373,10 +373,19 @@ npm install
 npm start
 ```
 
+也可以生成并运行当前架构的原生 ELF：
+
+```bash
+npm run build:native
+./dist/web-mcp-assistant-linux-$(uname -m | sed 's/aarch64/arm64/;s/x86_64/x64/')
+```
+
+原生 ELF 内嵌 Node、网页、MCP 代码和对应架构 Tunnel，运行时仅保留 Python 3.11+ 系统依赖。
+
 访问：
 
 ```text
-http://127.0.0.1:<web-port>
+http://<设备局域网 IP>:<web-port>
 ```
 
 后续正式部署可增加 systemd service，使 Web 服务和配置完整时的 MCP/Tunnel 随系统启动。
@@ -391,4 +400,6 @@ http://127.0.0.1:<web-port>
 - MCP 和 Tunnel 可以启动、停止、重启并实时更新状态。
 - Python、进程终止、Shell、代理检测全部走 Linux 实现。
 - Runtime API Key 不通过读取接口返回明文。
-- Web、MCP、Tunnel 管理端口默认全部只监听 `127.0.0.1`。
+- 未登录请求不能访问管理页面、REST API 或 SSE。
+- Web 管理端默认监听 `0.0.0.0`；MCP 与 Tunnel 管理端口只监听 `127.0.0.1`。
+- `npm run build:native` 可以生成可独立启动的当前架构 Linux ELF。

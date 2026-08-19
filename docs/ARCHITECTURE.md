@@ -24,11 +24,13 @@ web/server.js
 
 默认监听：
 
-- Web 管理服务：`127.0.0.1:17654`
+- Web 管理服务：`0.0.0.0:17654`
 - Coding Tools MCP：`127.0.0.1:18765`
 - Tunnel health/UI：`127.0.0.1:18081`
 
-端口可以在设置中调整，但绑定地址保持 loopback。
+Web 监听地址可通过 `WEB_HOST` 覆盖；MCP 与 Tunnel health/UI 的绑定地址保持 loopback。
+
+Web 页面、REST API 和 SSE 共用服务端密码会话。登录成功后服务端签发内存会话 Cookie，Cookie 设置为 `HttpOnly` 和 `SameSite=Strict`；服务重启后需要重新登录。默认密码可通过 `WEB_PASSWORD` 覆盖。
 
 ## 浏览器层
 
@@ -145,10 +147,11 @@ python3 -m coding_tools_mcp \
 
 ## Tunnel
 
-Linux 二进制固定路径：
+Linux Tunnel 二进制按主机架构选择：
 
 ```text
-resources/tools/tunnel-client
+x64:   resources/tools/tunnel-client
+arm64: resources/tools/tunnel-client-linux-arm64
 ```
 
 `TunnelService` 以环境变量传入 Runtime API Key 和 MCP Bearer Token，不把密钥直接写进命令行参数。
@@ -165,7 +168,24 @@ run
 --mcp.discovery-extra-headers Authorization: env:MCP_RUNTIME_HEADER_VALUE
 ```
 
-仓库当前携带 OpenAI `tunnel-client` v0.0.10 Linux x64。
+仓库当前携带 OpenAI `tunnel-client` v0.0.10 Linux x64 与 arm64 官方产物。
+
+启动器读取 ELF machine 字段并优先原生执行。若 arm64 部署缺少原生文件但仍有旧 x86_64 客户端，会自动兼容回退：
+
+```text
+qemu-x86_64 -L /usr/x86_64-linux-gnu resources/tools/tunnel-client ...
+```
+
+## 原生单文件发布
+
+`npm run build:native` 使用 Node SEA 生成当前 Linux 架构的 ELF。JavaScript 由 esbuild 合并，`renderer/` 与 `resources/` 作为 SEA assets 嵌入。启动时由 `native/entry.js` 按内容 build ID 释放到 XDG cache，再通过以下覆盖路径复用原有服务代码：
+
+```text
+WEB_MCP_RENDERER_ROOT
+WEB_MCP_RESOURCES_ROOT
+```
+
+发布 ELF 不依赖系统 Node.js；Coding Tools MCP 仍使用系统 Python 3.11+。arm64 发布只嵌入 arm64 Tunnel，x64 发布只嵌入 x64 Tunnel。
 
 ## 进程生命周期
 

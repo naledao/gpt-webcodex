@@ -21,7 +21,7 @@
 - [x] 密钥目录 `0700`、密钥文件 `0600`。
 - [x] Python 只检测 `python3` / `python`，最低 3.11。
 - [x] 不自动安装 Python。
-- [x] MCP 和 Tunnel 都只绑定 `127.0.0.1`。
+- [x] Web 管理端绑定 `0.0.0.0`；MCP 和 Tunnel 只绑定 `127.0.0.1`。
 - [x] 进程停止使用 `SIGTERM -> SIGKILL`。
 - [x] 只管理状态文件中记录的 MCP/Tunnel PID。
 - [x] 构建命令使用 `/bin/sh -lc`。
@@ -29,19 +29,24 @@
 
 ## OpenAI tunnel-client
 
-- [x] 使用 Linux x64 ELF 二进制，不使用 Windows `.exe`。
+- [x] 使用 Linux x64/arm64 ELF 二进制，不使用 Windows `.exe`。
 - [x] 当前 bundled 版本：v0.0.10。
 - [x] 下载源使用 OpenAI 官方发行资源。
 - [x] ZIP SHA-256 与官方 `SHA256SUMS.txt` 一致：`b9e0388a343f2d7adeff3992f411a0bd3d916a64bc56534aac5fd15ac1b20cd5`。
-- [x] WSL2 中 `tunnel-client --version` 可执行。
+- [x] arm64 ZIP SHA-256 与官方 `SHA256SUMS.txt` 一致：`b842a9b2352eebd80514cf01a1fbb1c0d400a7d24a4015e85a7ea5f1aeaa5b30`。
+- [x] x64 与 arm64 客户端均来自 OpenAI v0.0.10 官方发布。
 - [x] 已确认 `run --help` 存在所需参数：Tunnel ID、API Key、health listen、MCP server URL、extra headers、proxy。
+- [x] arm64 与 x64 主机优先执行对应原生客户端；arm64 保留 x86_64/QEMU 回退。
 - [x] 上游 Apache-2.0 LICENSE 已保存到 `resources/tools/tunnel-client-LICENSE.txt`。
 - [x] 上游 v0.0.10 `SHA256SUMS.txt` 已保存到 `resources/tools/tunnel-client-SHA256SUMS.txt`。
 
 ## Web API / UI
 
 - [x] `npm start` 入口是 `node web/server.js`。
-- [x] Web 服务默认 `127.0.0.1:17654`。
+- [x] Web 服务默认 `0.0.0.0:17654`，支持通过 `WEB_HOST` 覆盖。
+- [x] 登录页只输入密码，密码由服务端校验。
+- [x] 未登录访问页面会跳转到登录页，REST API 与 SSE 返回 `401`。
+- [x] 登录会话 Cookie 使用 `HttpOnly` 与 `SameSite=Strict`。
 - [x] 实现 snapshot/settings/workspace/secrets/runtime/logs/task/build/health REST API。
 - [x] 实现 `/api/events` SSE。
 - [x] SSE 包含 runtime progress/status/heartbeat、logs、build progress。
@@ -50,13 +55,22 @@
 - [x] 外部 OpenAI/ChatGPT 页面使用浏览器新标签页。
 - [x] REST API 不返回 Runtime API Key 或 MCP Token 明文。
 
+## 原生二进制发布
+
+- [x] `npm run build:native` 使用 Node SEA 生成当前 Linux 架构 ELF。
+- [x] 网页、Coding Tools MCP 和对应架构 Tunnel 已内嵌。
+- [x] 首次运行按 build ID 释放资源到 XDG cache。
+- [x] 发布包包含 LICENSE、THIRD_PARTY_NOTICES 和 SHA-256 校验文件。
+- [x] arm64 ELF 在隔离 XDG 目录中完成登录、静态页面和 snapshot 烟雾测试。
+- [x] arm64 ELF 释放出的 Tunnel 经 `file` 确认为静态链接 AArch64 ELF。
+
 ## 自动测试
 
 在 Ubuntu-26.04 / WSL2 的 Linux Node.js 环境中已完成：
 
 - [x] `npm install --ignore-scripts` 通过。
 - [x] `npm run check` 通过。
-- [x] Linux Web 测试 13/13 通过。
+- [x] Linux Web 测试 15/15 通过。
 - [x] REST/SSE 测试通过。
 - [x] XDG 路径测试通过。
 - [x] 0600/0700 权限逻辑测试通过。
@@ -77,8 +91,8 @@
 - [x] 仓库可从 `/mnt/c/codes/gpt-webcodex` 访问。
 - [x] bundled `tunnel-client` 在 WSL2 中可执行并报告 v0.0.10。
 - [x] `npm start` 在 WSL2 中成功启动 Web 管理服务。
-- [x] `ss` 确认 Web 只监听 `127.0.0.1:17654`。
-- [x] `curl http://127.0.0.1:17654/` 返回 HTTP 200。
+- [x] `ss` 确认 Web 监听 `0.0.0.0:17654`。
+- [x] 未登录访问根页面返回登录跳转，登录后返回 HTTP 200。
 - [x] Coding Tools MCP 可由 Python 3.14.4 启动并监听 `127.0.0.1:18766` 测试端口。
 - [x] `NativeService.status()` 返回正常。
 - [x] `NativeService.stop()` 后测试端口释放。
@@ -102,6 +116,7 @@ npm install
 npm run check
 npm test
 npm audit --omit=dev
+npm run build:native
 ```
 
 并确认：
@@ -112,14 +127,15 @@ node --version
 command -v npm
 npm --version
 python3 --version
-resources/tools/tunnel-client --version
+resources/tools/tunnel-client run --help
 ```
 
 ## 发布阻断条件
 
 出现下列任意情况时不要发布：
 
-- Web/MCP/Tunnel 任一服务监听 `0.0.0.0` 或非预期外部地址。
+- MCP/Tunnel 任一服务监听 `0.0.0.0`，或 Web 监听非配置指定的地址。
+- 未登录时能够直接访问管理页面、REST API 或 SSE。
 - REST API 回显密钥明文。
 - `resources/tools` 中重新出现 Windows `.exe`。
 - npm 依赖重新引入 Electron/electron-builder/electron-updater。

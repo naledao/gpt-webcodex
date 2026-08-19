@@ -7,6 +7,12 @@ const path = require('node:path');
 const paths = require('../src/paths');
 const { SecretStore } = require('../src/services/secretStore');
 const { normalizeProxyValue, environmentProxyCandidates } = require('../src/services/proxyService');
+const {
+  ELF_MACHINE_AARCH64,
+  ELF_MACHINE_X86_64,
+  readElfMachine,
+  resolveTunnelLaunch
+} = require('../src/services/tunnelService');
 
 function source(relative) {
   return fs.readFileSync(path.join(__dirname, '..', relative), 'utf8');
@@ -42,6 +48,7 @@ test('Linux process, Python and shell rules are present', () => {
   assert.match(processSource, /SIGTERM/);
   assert.match(processSource, /SIGKILL/);
   assert.match(environmentSource, /\['python3', 'python'\]/);
+  assert.match(source('src/services/nativeService.js'), /PYTHONDONTWRITEBYTECODE: '1'/);
   assert.match(buildSource, /run\('\/bin\/sh', \['-lc', command\]/);
   for (const forbidden of ['where.exe', 'taskkill.exe', 'cmd.exe', 'reg.exe', 'netsh.exe']) {
     assert.equal(`${processSource}\n${environmentSource}\n${buildSource}`.includes(forbidden), false, forbidden);
@@ -58,4 +65,32 @@ test('proxy parsing uses environment/manual HTTP(S) values without credentials',
   } finally {
     if (previous === undefined) delete process.env.HTTPS_PROXY; else process.env.HTTPS_PROXY = previous;
   }
+});
+
+test('native tunnel-client is selected while x86_64 fallback still supports qemu', () => {
+  const executable = paths.tunnelExecutable();
+  const nativeArch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const nativeMachine = nativeArch === 'arm64' ? ELF_MACHINE_AARCH64 : ELF_MACHINE_X86_64;
+  assert.equal(readElfMachine(executable), nativeMachine);
+
+  assert.deepEqual(resolveTunnelLaunch(executable, {
+    arch: nativeArch,
+    machine: nativeMachine
+  }), {
+    command: executable,
+    prefixArgs: [],
+    mode: 'native'
+  });
+
+  assert.deepEqual(resolveTunnelLaunch(executable, {
+    arch: 'arm64',
+    machine: ELF_MACHINE_X86_64,
+    qemuCommand: 'qemu-x86_64',
+    sysroot: '/usr/x86_64-linux-gnu',
+    sysrootAvailable: true
+  }), {
+    command: 'qemu-x86_64',
+    prefixArgs: ['-L', '/usr/x86_64-linux-gnu', executable],
+    mode: 'qemu-x86_64'
+  });
 });

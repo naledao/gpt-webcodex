@@ -1,0 +1,71 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI Variable", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  background: #eef2f7;
+  color: #172033;
+}
+
+* { box-sizing: border-box; }
+
+html, body { min-width: 320px; min-height: 100%; margin: 0; }
+
+body { min-height: 100vh; background: #eef2f7; }
+
+.login-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-panel {
+  width: min(100%, 360px);
+  padding: 30px;
+  border: 1px solid #d7deea;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 50px rgba(31, 45, 70, 0.12);
+}
+
+.brand-mark { display: flex; width: 38px; height: 38px; align-items: flex-end; gap: 4px; margin-bottom: 24px; }
+.brand-mark span { display: block; width: 8px; border-radius: 2px; background: #5268dd; }
+.brand-mark span:nth-child(1) { height: 20px; }
+.brand-mark span:nth-child(2) { height: 32px; background: #26334d; }
+.brand-mark span:nth-child(3) { height: 25px; background: #24a6a2; }
+
+.eyebrow { margin: 0 0 7px; color: #5268dd; font-size: 11px; font-weight: 800; }
+h1 { margin: 0; font-size: 26px; letter-spacing: 0; }
+.subtitle { margin: 8px 0 24px; color: #6f7b8f; font-size: 14px; }
+
+form { display: grid; gap: 10px; }
+label { color: #455268; font-size: 12px; font-weight: 700; }
+input, button { width: 100%; height: 44px; font: inherit; }
+input {
+  padding: 0 12px;
+  color: #172033;
+  border: 1px solid #bcc7d8;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+input:focus { border-color: #5268dd; outline: 2px solid rgba(82, 104, 221, 0.18); }
+button {
+  margin-top: 4px;
+  color: #ffffff;
+  border: 0;
+  border-radius: 6px;
+  background: #5268dd;
+  cursor: pointer;
+  font-weight: 750;
+}
+button:hover { background: #4359cd; }
+button:disabled { cursor: wait; opacity: 0.65; }
+.error-message { min-height: 18px; margin: 0; color: #c43f50; font-size: 12px; line-height: 18px; }
+
+@media (prefers-color-scheme: dark) {
+  :root, body { color-scheme: dark; color: #eef2f8; background: #111722; }
+  .login-panel { border-color: #2e394b; background: #1a2230; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28); }
+  .brand-mark span:nth-child(2) { background: #d8dfeb; }
+  .subtitle { color: #9da9bb; }
+  label { color: #c2cad7; }
+  input { color: #eef2f8; border-color: #445168; background: #121925; }
+}

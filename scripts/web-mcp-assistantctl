@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+umask 077
+
+APP_NAME="web-mcp-assistant"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+
+case "$(uname -m)" in
+  aarch64|arm64)
+    NATIVE_BINARY_NAME="web-mcp-assistant-linux-arm64"
+    ;;
+  x86_64|amd64)
+    NATIVE_BINARY_NAME="web-mcp-assistant-linux-x64"
+    ;;
+  *)
+    NATIVE_BINARY_NAME="web-mcp-assistant-linux-$(uname -m)"
+    ;;
+esac
+
+resolve_binary() {
+  if [[ -n "${WEB_MCP_BINARY:-}" ]]; then
+    printf '%s\n' "$WEB_MCP_BINARY"
+    return
+  fi
+
+  local candidate
+  local candidates=(
+    "$SCRIPT_DIR/../dist/$NATIVE_BINARY_NAME"
+    "$SCRIPT_DIR/$NATIVE_BINARY_NAME"
+    "$SCRIPT_DIR/../libexec/$APP_NAME"
+    "/usr/local/libexec/$APP_NAME"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if [[ -x "$candidate" ]]; then
+      readlink -f -- "$candidate"
+      return
+    fi
+  done
+
+  printf '%s\n' "${candidates[0]}"
+}
+
+BINARY="$(resolve_binary)"
+STATE_BASE="${XDG_STATE_HOME:-${HOME:?HOME is not set}/.local/state}"
+STATE_DIR="${WEB_MCP_STATE_DIR:-$STATE_BASE/$APP_NAME}"
+LOG_DIR="$STATE_DIR/logs"
+LOG_FILE="$LOG_DIR/web-manager.log"
+PID_FILE="$STATE_DIR/web-manager.pid"
+START_TIME_FILE="$STATE_DIR/web-manager.start-time"
+LOCK_FILE="$STATE_DIR/web-manager.lock"
+
+mkdir -p -- "$LOG_DIR"
+
+usage() {
+  cat <<'EOF'
+Usage: web-mcp-assistantctl {start|stop|restart|status|logs}
+
+Commands:
+  start       Start the native binary in a detached session.
+  stop        Gracefully stop the tracked process.
+  restart     Stop and start the tracked process.
+  status      Show whether the tracked process is running.
+  logs [-f]   Show the latest manager log; -f follows new output.
+
+Environment:
+  WEB_MCP_BINARY     Override the native binary path.
+  WEB_MCP_STATE_DIR  Override the state and log directory.
+EOF
+}
+
+read_pid() {
+  local pid
+  [[ -r "$PID_FILE" ]] || return 1
+  IFS= read -r pid < "$PID_FILE" || return 1
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  printf '%s\n' "$pid"
+}
+
+read_saved_start_time() {
+  local start_time
+  [[ -r "$START_TIME_FILE" ]] || return 1
+  IFS= read -r start_time < "$START_TIME_FILE" || return 1
+  [[ "$start_time" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$start_time"
+}
+
+read_process_identity() {
+  local process_pid="$1"
+  local raw_stat stat_tail
+  local -a stat_fields
+
+  [[ -r "/proc/$process_pid/stat" ]] || return 1
+  IFS= read -r raw_stat < "/proc/$process_pid/stat" || return 1
+  stat_tail="${raw_stat##*) }"
+  [[ "$stat_tail" != "$raw_stat" ]] || return 1
+  read -r -a stat_fields <<< "$stat_tail"
+  ((${#stat_fields[@]} >= 20)) || return 1
+
+  PROCESS_STATE="${stat_fields[0]}"
+  PROCESS_START_TIME="${stat_fields[19]}"
+}
+
+RUNNING_PID=""
+is_running() {
+  local pid saved_start_time
+  pid="$(read_pid)" || return 1
+  saved_start_time="$(read_saved_start_time)" || return 1
+  read_process_identity "$pid" || return 1
+  [[ "$PROCESS_STATE" != "Z" && "$PROCESS_START_TIME" == "$saved_start_time" ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  RUNNING_PID="$pid"
+}
+
+clear_tracking_files() {
+  rm -f -- "$PID_FILE" "$START_TIME_FILE"
+}
+
+start_service() {
+  local pid attempt exit_code=0
+
+  if is_running; then
+    printf '%s is already running (PID %s).\n' "$APP_NAME" "$RUNNING_PID"
+    return 0
+  fi
+
+  clear_tracking_files
+  if [[ ! -x "$BINARY" ]]; then
+    printf 'Native binary is missing or not executable: %s\n' "$BINARY" >&2
+    return 1
+  fi
+
+  printf '\n[%s] Starting %s\n' "$(date '+%Y-%m-%d %H:%M:%S %z')" "$BINARY" >> "$LOG_FILE"
+  (
+    exec 9>&-
+    cd -- "$STATE_DIR"
+    exec nohup setsid -- "$BINARY"
+  ) </dev/null >> "$LOG_FILE" 2>&1 &
+  pid=$!
+
+  for ((attempt = 0; attempt < 50; attempt += 1)); do
+    if read_process_identity "$pid" && [[ "$PROCESS_STATE" != "Z" ]]; then
+      printf '%s\n' "$PROCESS_START_TIME" > "$START_TIME_FILE"
+      printf '%s\n' "$pid" > "$PID_FILE"
+      break
+    fi
+    sleep 0.1
+  done
+
+  if [[ ! -s "$PID_FILE" ]]; then
+    wait "$pid" 2>/dev/null || exit_code=$?
+    printf 'Failed to start %s (exit code %s). See %s\n' "$APP_NAME" "$exit_code" "$LOG_FILE" >&2
+    tail -n 20 -- "$LOG_FILE" >&2 || true
+    return 1
+  fi
+
+  sleep 1
+  if ! is_running; then
+    wait "$pid" 2>/dev/null || exit_code=$?
+    clear_tracking_files
+    printf 'Failed to start %s (exit code %s). See %s\n' "$APP_NAME" "$exit_code" "$LOG_FILE" >&2
+    tail -n 20 -- "$LOG_FILE" >&2 || true
+    return 1
+  fi
+
+  printf 'Started %s (PID %s).\n' "$APP_NAME" "$RUNNING_PID"
+  printf 'Log: %s\n' "$LOG_FILE"
+}
+
+wait_for_exit() {
+  local attempt
+  for ((attempt = 0; attempt < 150; attempt += 1)); do
+    if ! is_running; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
+stop_service() {
+  local pid
+
+  if ! is_running; then
+    clear_tracking_files
+    printf '%s is not running.\n' "$APP_NAME"
+    return 0
+  fi
+
+  pid="$RUNNING_PID"
+  printf 'Stopping %s (PID %s)...\n' "$APP_NAME" "$pid"
+  kill -TERM "$pid" 2>/dev/null || true
+
+  if wait_for_exit; then
+    clear_tracking_files
+    printf 'Stopped %s.\n' "$APP_NAME"
+    return 0
+  fi
+
+  printf 'Graceful shutdown timed out; sending SIGKILL to PID %s.\n' "$pid" >&2
+  kill -KILL "$pid" 2>/dev/null || true
+  if wait_for_exit; then
+    clear_tracking_files
+    printf 'Stopped %s.\n' "$APP_NAME"
+    return 0
+  fi
+
+  printf 'Unable to stop PID %s.\n' "$pid" >&2
+  return 1
+}
+
+show_status() {
+  if is_running; then
+    printf '%s is running (PID %s).\n' "$APP_NAME" "$RUNNING_PID"
+    printf 'Binary: %s\n' "$BINARY"
+    printf 'Log: %s\n' "$LOG_FILE"
+    return 0
+  fi
+
+  clear_tracking_files
+  printf '%s is not running.\n' "$APP_NAME"
+  return 3
+}
+
+show_logs() {
+  touch -- "$LOG_FILE"
+  if [[ "${1:-}" == "-f" || "${1:-}" == "--follow" ]]; then
+    exec tail -n 100 -F -- "$LOG_FILE"
+  fi
+  exec tail -n 100 -- "$LOG_FILE"
+}
+
+command_name="${1:-}"
+case "$command_name" in
+  logs)
+    show_logs "${2:-}"
+    ;;
+  start|stop|restart|status)
+    exec 9>"$LOCK_FILE"
+    flock -x 9
+    case "$command_name" in
+      start)
+        start_service
+        ;;
+      stop)
+        stop_service
+        ;;
+      restart)
+        stop_service
+        start_service
+        ;;
+      status)
+        show_status
+        ;;
+    esac
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

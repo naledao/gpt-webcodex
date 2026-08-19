@@ -56,6 +56,7 @@ class NativeService {
       CODING_TOOLS_MCP_AUTH_MODE: 'bearer',
       CODING_TOOLS_MCP_AUTH_TOKEN: token,
       CODING_TOOLS_MCP_TELEMETRY: 'off',
+      PYTHONDONTWRITEBYTECODE: '1',
       CODING_TOOLS_MCP_TOOL_MODE: 'smart',
       CODING_TOOLS_MCP_AUTHORIZED_ROOTS: JSON.stringify(settings.authorizedRoots || []),
       CODING_TOOLS_MCP_LONG_TOOL_HANDOFF_SECONDS: String(settings.progressReportSeconds || 90)

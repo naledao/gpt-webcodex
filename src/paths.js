@@ -1,4 +1,5 @@
 const os = require('node:os');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const APP_NAME = 'web-mcp-assistant';
@@ -18,7 +19,20 @@ function stateRoot() {
 }
 
 function resourcesRoot() {
+  if (process.env.WEB_MCP_RESOURCES_ROOT) {
+    return path.resolve(process.env.WEB_MCP_RESOURCES_ROOT);
+  }
   return path.resolve(__dirname, '..', 'resources');
+}
+
+function tunnelExecutable() {
+  const tools = path.join(resourcesRoot(), 'tools');
+  const candidates = process.arch === 'arm64'
+    ? ['tunnel-client-linux-arm64', 'tunnel-client']
+    : ['tunnel-client', 'tunnel-client-linux-amd64'];
+  return candidates
+    .map((name) => path.join(tools, name))
+    .find((file) => fs.existsSync(file)) || path.join(tools, candidates[0]);
 }
 
 module.exports = {
@@ -32,5 +46,5 @@ module.exports = {
   logFile: () => path.join(stateRoot(), 'logs', 'assistant.log'),
   mcpLogFile: () => path.join(stateRoot(), 'logs', 'mcp.log'),
   tunnelLogFile: () => path.join(stateRoot(), 'logs', 'tunnel.log'),
-  tunnelExecutable: () => path.join(resourcesRoot(), 'tools', 'tunnel-client')
+  tunnelExecutable
 };

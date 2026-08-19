@@ -3,8 +3,45 @@ const { spawn } = require('node:child_process');
 const { tunnelExecutable, tunnelLogFile, stateFile } = require('../paths');
 const { readJson, updateJsonAtomic, ensureParent } = require('./jsonStore');
 const { rotateLog } = require('./logService');
-const { canConnect, isExecutable } = require('./environmentService');
+const { canConnect, commandExists, isExecutable } = require('./environmentService');
 const { isAlive, terminateOwnedProcess } = require('./processService');
+
+const ELF_MACHINE_X86_64 = 62;
+const ELF_MACHINE_AARCH64 = 183;
+
+function readElfMachine(file) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(file, 'r');
+    const header = Buffer.alloc(20);
+    if (fs.readSync(descriptor, header, 0, header.length, 0) !== header.length) return 0;
+    if (!header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))) return 0;
+    if (header[5] === 1) return header.readUInt16LE(18);
+    if (header[5] === 2) return header.readUInt16BE(18);
+    return 0;
+  } catch {
+    return 0;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function resolveTunnelLaunch(executable, options = {}) {
+  const hostArch = options.arch || process.arch;
+  const machine = options.machine ?? readElfMachine(executable);
+  const hostMachine = hostArch === 'x64' ? ELF_MACHINE_X86_64 : hostArch === 'arm64' ? ELF_MACHINE_AARCH64 : 0;
+  if (!machine || !hostMachine || machine === hostMachine) {
+    return { command: executable, prefixArgs: [], mode: 'native' };
+  }
+  if (hostArch === 'arm64' && machine === ELF_MACHINE_X86_64) {
+    const command = options.qemuCommand || process.env.TUNNEL_QEMU_X86_64 || 'qemu-x86_64';
+    const sysroot = options.sysroot || process.env.TUNNEL_QEMU_SYSROOT || '/usr/x86_64-linux-gnu';
+    const sysrootAvailable = options.sysrootAvailable ?? fs.existsSync(sysroot);
+    const prefixArgs = sysrootAvailable ? ['-L', sysroot, executable] : [executable];
+    return { command, prefixArgs, mode: 'qemu-x86_64' };
+  }
+  throw new Error(`tunnel-client 架构与当前主机不兼容：host=${hostArch}, ELF machine=${machine}`);
+}
 
 class TunnelService {
   constructor(log) {
@@ -18,6 +55,13 @@ class TunnelService {
     if (!settings.tunnelId) throw new Error('请先填写 OpenAI Tunnel ID。');
     await this.stop();
     progress('tunnel-start', 72, '正在连接 OpenAI MCP Tunnel');
+    const launch = resolveTunnelLaunch(executable);
+    if (launch.mode === 'qemu-x86_64') {
+      const qemuAvailable = launch.command.includes('/')
+        ? isExecutable(launch.command)
+        : await commandExists(launch.command);
+      if (!qemuAvailable) throw new Error('当前为 arm64 系统，运行 x86_64 tunnel-client 需要安装 qemu-x86_64。');
+    }
     ensureParent(tunnelLogFile());
     rotateLog(tunnelLogFile());
     const output = fs.openSync(tunnelLogFile(), 'a');
@@ -41,7 +85,7 @@ class TunnelService {
       : settings.proxyUrl;
     if (proxyUrl) args.push('--control-plane.http-proxy', proxyUrl);
 
-    const child = spawn(executable, args, {
+    const child = spawn(launch.command, [...launch.prefixArgs, ...args], {
       detached: false,
       stdio: ['ignore', output, output],
       env
@@ -63,7 +107,7 @@ class TunnelService {
 
     for (let index = 0; index < 30; index += 1) {
       if (await canConnect('127.0.0.1', settings.healthPort, 500)) {
-        this.log.info('OpenAI Tunnel 已启动', { pid: child.pid, tunnelId: settings.tunnelId });
+        this.log.info('OpenAI Tunnel 已启动', { pid: child.pid, tunnelId: settings.tunnelId, launcher: launch.mode });
         return;
       }
       if (!isAlive(child.pid)) throw new Error('Linux tunnel-client 进程已提前退出，请查看 Tunnel 日志。');
@@ -89,4 +133,10 @@ class TunnelService {
   }
 }
 
-module.exports = { TunnelService };
+module.exports = {
+  ELF_MACHINE_X86_64,
+  ELF_MACHINE_AARCH64,
+  readElfMachine,
+  resolveTunnelLaunch,
+  TunnelService
+};

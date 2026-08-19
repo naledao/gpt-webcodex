@@ -665,6 +665,10 @@ function bindEvents() {
     try { unwrap(await api.regenerateMcpToken()); toast('认证 Token 已重新生成', '重新部署后生效。'); }
     catch (error) { toast('生成失败', error.message, 'error'); }
   });
+  $('#logoutButton').addEventListener('click', async () => {
+    try { await api.logout(); }
+    finally { location.replace('/login'); }
+  });
   $('#proxyModeSelect').addEventListener('change', () => { renderProxyControls(); renderDeploySummary(); });
   $('#proxyDetect').addEventListener('click', async () => {
     try {
@@ -765,7 +769,6 @@ async function initialize() {
 }
 
 initialize();
-
 
 
 

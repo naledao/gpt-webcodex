@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>登录 - 网页 MCP 助手</title>
+  <link rel="stylesheet" href="/login.css">
+  <script src="/login.js" defer></script>
+</head>
+<body>
+  <main class="login-shell">
+    <section class="login-panel" aria-labelledby="loginTitle">
+      <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+      <p class="eyebrow">WEB MCP ASSISTANT</p>
+      <h1 id="loginTitle">访问验证</h1>
+      <p class="subtitle">请输入管理密码</p>
+      <form id="loginForm">
+        <label for="passwordInput">密码</label>
+        <input id="passwordInput" name="password" type="password" autocomplete="current-password" required autofocus>
+        <button id="loginButton" type="submit">登录</button>
+        <p class="error-message" id="loginError" role="alert" aria-live="polite"></p>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

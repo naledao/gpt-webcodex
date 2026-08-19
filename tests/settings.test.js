@@ -20,7 +20,10 @@ test('XDG config/state paths are used', () => {
     assert.equal(paths.settingsFile(), path.join(temp, 'config', 'web-mcp-assistant', 'settings.json'));
     assert.equal(paths.secretsFile(), path.join(temp, 'config', 'web-mcp-assistant', 'secrets.json'));
     assert.equal(paths.stateFile(), path.join(temp, 'state', 'web-mcp-assistant', 'runtime-state.json'));
-    assert.equal(paths.tunnelExecutable(), path.join(paths.resourcesRoot(), 'tools', 'tunnel-client'));
+    const expectedTunnel = process.arch === 'arm64'
+      ? 'tunnel-client-linux-arm64'
+      : 'tunnel-client';
+    assert.equal(paths.tunnelExecutable(), path.join(paths.resourcesRoot(), 'tools', expectedTunnel));
   } finally {
     if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = oldConfig;
     if (oldState === undefined) delete process.env.XDG_STATE_HOME; else process.env.XDG_STATE_HOME = oldState;

@@ -10,7 +10,7 @@
 Browser
   │  HTTP / SSE
   ▼
-web/server.js   (127.0.0.1:17654)
+web/server.js   (0.0.0.0:17654)
   │
   ├─ src/services/*
   ├─ Coding Tools MCP   (127.0.0.1:18765)
@@ -24,9 +24,9 @@ web/server.js   (127.0.0.1:17654)
 - Linux；WSL2 Ubuntu 也可以。
 - Node.js 22 或更高版本。
 - Python 3.11 或更高版本，命令名为 `python3` 或 `python`。
-- `resources/tools/tunnel-client` 必须是可执行的 Linux 二进制。
+- 源码运行时，`resources/tools/` 中必须有对应架构的 Linux Tunnel 二进制。
 
-仓库当前包含 OpenAI `tunnel-client` v0.0.10 Linux x64 版本；引入时已使用上游 `SHA256SUMS.txt` 校验。
+仓库当前包含 OpenAI `tunnel-client` v0.0.10 的 Linux x64 与 arm64 官方产物；引入时均使用上游 `SHA256SUMS.txt` 校验。arm64 和 x64 主机会优先直接执行各自的原生客户端，旧 x86_64 客户端在 arm64 上仍保留 QEMU 兼容回退。
 
 ## 在 WSL2 中运行
 
@@ -60,13 +60,84 @@ npm test
 npm start
 ```
 
-默认管理地址：
+默认监听所有网卡。当前设备可从本机或局域网访问：
 
 ```text
 http://127.0.0.1:17654
+http://<设备局域网 IP>:17654
 ```
 
-服务默认只监听 `127.0.0.1`，不会监听 `0.0.0.0`。
+打开页面后只需输入 Web 管理密码。部署预设密码只以服务端校验值保存，也可以在启动前通过 `WEB_PASSWORD` 覆盖：
+
+```bash
+WEB_PASSWORD='新的密码' npm start
+```
+
+如需恢复为仅本机访问，可执行：
+
+```bash
+WEB_HOST=127.0.0.1 npm start
+```
+
+## 原生二进制
+
+在目标 Linux 主机上执行：
+
+```bash
+npm install
+npm run build:native
+```
+
+arm64 产物位于：
+
+```text
+dist/web-mcp-assistant-linux-arm64
+dist/web-mcp-assistant-v0.1.6-linux-arm64.tar.gz
+dist/SHA256SUMS-native.txt
+```
+
+直接运行：
+
+```bash
+./dist/web-mcp-assistant-linux-arm64
+```
+
+如需在后台运行并脱离当前终端，可直接使用控制脚本：
+
+```bash
+chmod +x scripts/web-mcp-assistantctl
+scripts/web-mcp-assistantctl start
+scripts/web-mcp-assistantctl status
+scripts/web-mcp-assistantctl restart
+scripts/web-mcp-assistantctl stop
+scripts/web-mcp-assistantctl logs
+scripts/web-mcp-assistantctl logs -f
+```
+
+也可以安装成全局命令：
+
+```bash
+sudo install -Dm755 dist/web-mcp-assistant-linux-arm64 /usr/local/libexec/web-mcp-assistant
+sudo install -Dm755 scripts/web-mcp-assistantctl /usr/local/bin/web-mcp-assistantctl
+web-mcp-assistantctl start
+```
+
+脚本使用 `setsid` 和 `nohup` 启动独立会话，并将 PID 与日志保存到：
+
+```text
+~/.local/state/web-mcp-assistant/web-manager.pid
+~/.local/state/web-mcp-assistant/logs/web-manager.log
+```
+
+可通过 `WEB_MCP_BINARY` 指定其他二进制路径，通过 `WEB_MCP_STATE_DIR` 指定其他状态目录。
+
+该 ELF 已内嵌 Node 服务、网页、Coding Tools MCP 和当前架构的 Tunnel 客户端。首次启动会把运行资源释放到：
+
+```text
+${XDG_CACHE_HOME:-~/.cache}/web-mcp-assistant/native/<build-id>/
+```
+
+arm64 发布包运行时不需要安装 Node.js、npm 或 QEMU，但仍需要系统提供 Python 3.11 或更高版本。配置、密钥和状态继续使用原有 XDG 目录，升级二进制不会清空现有配置。
 
 ## 工作目录
 
@@ -148,9 +219,10 @@ http://127.0.0.1:18081/ui
 ## 常用命令
 
 ```bash
-npm start       # 启动本地 Web 管理服务
+npm start       # 启动可从局域网访问的 Web 管理服务
 npm test        # Node.js 测试
 npm run check   # JavaScript 语法检查
+npm run build:native # 生成当前 Linux 架构的原生 ELF
 ```
 
 ## 目录
@@ -160,8 +232,12 @@ web/                     Node.js HTTP/SSE 服务
 src/                     Linux 路径与核心服务
 src/services/            配置、密钥、进程、MCP、Tunnel、健康检查等
 renderer/                 纯浏览器管理页面
+native/                   SEA 启动入口和内嵌资源释放逻辑
+scripts/build-native.mjs  原生 ELF 构建脚本
+scripts/web-mcp-assistantctl 后台启动、停止和重启脚本
 resources/coding-tools-mcp/
 resources/tools/tunnel-client
+resources/tools/tunnel-client-linux-arm64
 resources/tools/tunnel-client-LICENSE.txt
 resources/tools/tunnel-client-SHA256SUMS.txt
 tests/                   Linux Web 测试
@@ -169,7 +245,9 @@ tests/                   Linux Web 测试
 
 ## 安全边界
 
-- Web、MCP、Tunnel health/UI 默认全部绑定 `127.0.0.1`。
+- Web 管理端默认绑定 `0.0.0.0:17654`，页面、REST API 和 SSE 均要求密码会话认证。
+- Web 登录使用 `HttpOnly`、`SameSite=Strict` Cookie；当前仍是 HTTP，建议只在可信局域网使用。
+- MCP 与 Tunnel health/UI 仍只绑定 `127.0.0.1`。
 - 只终止 `runtime-state.json` 中由本程序记录的 PID。
 - 进程停止顺序为 `SIGTERM`，超时后再 `SIGKILL`。
 - 构建命令通过 `/bin/sh -lc` 执行，只有用户明确发起构建验证时才运行。

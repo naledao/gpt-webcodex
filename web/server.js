@@ -15,13 +15,23 @@ const { resolveProxy, clearProxyCache } = require('../src/services/proxyService'
 const { normalize, validateRuntimeSettings } = require('../src/services/config');
 const { readJson, writeJsonAtomic } = require('../src/services/jsonStore');
 
-const HOST = '127.0.0.1';
+const DEFAULT_HOST = '0.0.0.0';
+const HOST = String(process.env.WEB_HOST || DEFAULT_HOST).trim() || DEFAULT_HOST;
 const DEFAULT_PORT = 17654;
+const DEFAULT_WEB_PASSWORD_HASH = '96326fd1778346db3a14d0758c70c12b98a171b7e2ce5f35293552cad1cd1cc2';
 const MAX_BODY_BYTES = 1024 * 1024;
-const RENDERER_ROOT = path.resolve(__dirname, '..', 'renderer');
+const SESSION_COOKIE_NAME = 'web_mcp_session';
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const RENDERER_ROOT = process.env.WEB_MCP_RENDERER_ROOT
+  ? path.resolve(process.env.WEB_MCP_RENDERER_ROOT)
+  : path.resolve(__dirname, '..', 'renderer');
 const STATIC_FILES = new Map([
   ['/', 'index.html'],
   ['/index.html', 'index.html'],
+  ['/login', 'login.html'],
+  ['/login.html', 'login.html'],
+  ['/login.js', 'login.js'],
+  ['/login.css', 'login.css'],
   ['/app.js', 'app.js'],
   ['/web-api.js', 'web-api.js'],
   ['/styles.css', 'styles.css'],
@@ -38,13 +48,14 @@ function safeMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function sendJson(response, statusCode, payload) {
+function sendJson(response, statusCode, payload, extraHeaders = {}) {
   const body = Buffer.from(JSON.stringify(payload));
   response.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': body.length,
     'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff'
+    'X-Content-Type-Options': 'nosniff',
+    ...extraHeaders
   });
   response.end(body);
 }
@@ -55,6 +66,35 @@ function sendSuccess(response, data) {
 
 function sendFailure(response, error, statusCode = 400) {
   sendJson(response, statusCode, { ok: false, error: safeMessage(error) });
+}
+
+function redirect(response, location) {
+  response.writeHead(302, {
+    Location: location,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff'
+  });
+  response.end();
+}
+
+function parseCookies(request) {
+  const values = {};
+  for (const item of String(request.headers.cookie || '').split(';')) {
+    const separator = item.indexOf('=');
+    if (separator < 1) continue;
+    const name = item.slice(0, separator).trim();
+    const value = item.slice(separator + 1).trim();
+    if (name) values[name] = value;
+  }
+  return values;
+}
+
+function passwordDigest(value) {
+  return crypto.createHash('sha256').update(String(value)).digest();
+}
+
+function sessionCookie(token, maxAgeSeconds) {
+  return `${SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}`;
 }
 
 async function readJsonBody(request) {
@@ -162,7 +202,13 @@ async function clearPerformance(settings) {
   return true;
 }
 
-function createApplication() {
+function createApplication(options = {}) {
+  const configuredPassword = options.authPassword;
+  if (configuredPassword !== undefined && !String(configuredPassword)) throw new Error('Web 管理密码不能为空。');
+  const authPasswordHash = configuredPassword === undefined
+    ? Buffer.from(DEFAULT_WEB_PASSWORD_HASH, 'hex')
+    : passwordDigest(configuredPassword);
+  const sessions = new Map();
   const sseClients = new Set();
   const broadcast = (eventName, payload) => {
     const packet = `event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`;
@@ -187,6 +233,51 @@ function createApplication() {
   const buildVerification = new BuildVerificationService(log, (payload) => broadcast('build:progress', payload));
   const healthService = new HealthService({ settings, secrets, environment, orchestrator });
   log.on('entry', (payload) => broadcast('logs:entry', payload));
+
+  function cleanupSessions() {
+    const now = Date.now();
+    for (const [token, expiresAt] of sessions) {
+      if (expiresAt <= now) sessions.delete(token);
+    }
+  }
+
+  function currentSessionToken(request) {
+    return parseCookies(request)[SESSION_COOKIE_NAME] || '';
+  }
+
+  function isAuthenticated(request) {
+    cleanupSessions();
+    const token = currentSessionToken(request);
+    const expiresAt = sessions.get(token) || 0;
+    if (!token || expiresAt <= Date.now()) {
+      if (token) sessions.delete(token);
+      return false;
+    }
+    return true;
+  }
+
+  async function login(request, response) {
+    if (request.method !== 'POST') return sendFailure(response, '不支持该请求方法。', 405);
+    const body = await readJsonBody(request);
+    if (!crypto.timingSafeEqual(passwordDigest(body.password || ''), authPasswordHash)) {
+      return sendFailure(response, '密码错误。', 401);
+    }
+    cleanupSessions();
+    while (sessions.size >= 128) sessions.delete(sessions.keys().next().value);
+    const token = crypto.randomBytes(32).toString('base64url');
+    sessions.set(token, Date.now() + SESSION_TTL_MS);
+    return sendJson(response, 200, { ok: true, data: true }, {
+      'Set-Cookie': sessionCookie(token, Math.floor(SESSION_TTL_MS / 1000))
+    });
+  }
+
+  function logout(request, response) {
+    const token = currentSessionToken(request);
+    if (token) sessions.delete(token);
+    return sendJson(response, 200, { ok: true, data: true }, {
+      'Set-Cookie': sessionCookie('', 0)
+    });
+  }
 
   async function handleApi(request, response, pathname) {
     const method = request.method || 'GET';
@@ -276,7 +367,21 @@ function createApplication() {
 
   const server = http.createServer(async (request, response) => {
     try {
-      const url = new URL(request.url || '/', `http://${HOST}`);
+      const url = new URL(request.url || '/', 'http://localhost');
+      const publicStatic = new Set(['/login', '/login.html', '/login.js', '/login.css']);
+      if (url.pathname === '/api/auth/login') return await login(request, response);
+      if (publicStatic.has(url.pathname)) {
+        if (isAuthenticated(request) && ['/login', '/login.html'].includes(url.pathname)) return redirect(response, '/');
+        return await serveStatic(request, response, url.pathname);
+      }
+      if (!isAuthenticated(request)) {
+        if (url.pathname.startsWith('/api/')) return sendFailure(response, '请先输入访问密码。', 401);
+        return redirect(response, '/login');
+      }
+      if (url.pathname === '/api/auth/logout') {
+        if (request.method !== 'POST') return sendFailure(response, '不支持该请求方法。', 405);
+        return logout(request, response);
+      }
       if (request.method === 'GET' && url.pathname === '/api/events') {
         response.writeHead(200, {
           'Content-Type': 'text/event-stream; charset=utf-8',
@@ -301,11 +406,13 @@ function createApplication() {
 }
 
 async function startServer(options = {}) {
-  const app = createApplication();
+  const authPassword = options.password ?? process.env.WEB_PASSWORD;
+  const app = createApplication({ authPassword });
+  const requestedHost = String(options.host ?? process.env.WEB_HOST ?? DEFAULT_HOST).trim() || DEFAULT_HOST;
   const requestedPort = options.port ?? Number(process.env.WEB_PORT || DEFAULT_PORT);
   await new Promise((resolve, reject) => {
     app.server.once('error', reject);
-    app.server.listen(requestedPort, HOST, resolve);
+    app.server.listen(requestedPort, requestedHost, resolve);
   });
   const address = app.server.address();
   const port = typeof address === 'object' && address ? address.port : requestedPort;
@@ -317,8 +424,8 @@ async function startServer(options = {}) {
   }, 5000);
   heartbeat.unref();
 
-  app.log.info('Linux Web 管理服务已启动', { host: HOST, port });
-  console.log(`Web manager listening on http://${HOST}:${port}`);
+  app.log.info('Linux Web 管理服务已启动', { host: requestedHost, port });
+  console.log(`Web manager listening on http://${requestedHost}:${port}`);
 
   if (app.settings.load().autoStartServices && !app.orchestrator.isManuallyStopped()) {
     app.orchestrator.start({ automatic: true }).catch((error) => app.log.error(error.message, { stage: 'auto-start' }));
@@ -334,7 +441,7 @@ async function startServer(options = {}) {
     await Promise.allSettled([app.orchestrator.tunnel.stop(), app.orchestrator.native.stop()]);
     await new Promise((resolve) => app.server.close(resolve));
   };
-  return { ...app, port, host: HOST, close };
+  return { ...app, port, host: requestedHost, close };
 }
 
 if (require.main === module) {
@@ -351,4 +458,4 @@ if (require.main === module) {
   process.once('SIGTERM', shutdown);
 }
 
-module.exports = { HOST, DEFAULT_PORT, createApplication, startServer, workspaceStatePaths };
+module.exports = { HOST, DEFAULT_HOST, DEFAULT_PORT, createApplication, startServer, workspaceStatePaths };
