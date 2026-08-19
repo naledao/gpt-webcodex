@@ -1,62 +1,258 @@
-# 网页 MCP 助手架构
+# Linux Web 架构
 
-## 进程边界
+## 目标
 
-```text
-Renderer（无 Node 权限）
-  ↓ contextBridge / allowlisted IPC
-Electron Main
-  ├─ SettingsStore：非敏感配置
-  ├─ SecretStore：Windows safeStorage / DPAPI
-  ├─ RuntimeOrchestrator：部署状态机
-  ├─ DockerService：隔离容器模式
-  ├─ NativeService：便携 Python 模式
-  ├─ TunnelService：OpenAI Tunnel
-  └─ LogService：脱敏诊断日志
-```
+`linux` 分支采用纯 Linux Web 架构：浏览器只提供设置与诊断界面，Node.js 服务负责本地系统能力。项目不包含 Electron 主进程、preload、IPC、托盘、桌面窗口或内嵌 ChatGPT。
 
-渲染进程启用 `contextIsolation`、关闭 `nodeIntegration` 并启用沙箱。它不能读取文件、密钥或执行系统命令，只能调用预加载层暴露的固定方法。
-
-## 运行模式
-
-### Docker 安全模式
-
-- 使用固定容器名 `web-mcp-assistant-runtime`。
-- 使用固定镜像名 `web-mcp-assistant-runtime:0.2.1`。
-- 只把用户明确选择的目录挂载到 `/workspace`。
-- MCP 与 Tunnel 端口均只绑定 `127.0.0.1`。
-- Docker Desktop 已安装但未运行时，由助手启动并等待引擎就绪。
-
-### 便携运行模式
-
-- 使用安装包内置的 Python 3.12 解释器。
-- Coding Tools MCP 与 PyJWT 安装在隔离的 `site-packages`。
-- 不依赖系统 Python，也不会向系统 Python 安装包。
-- 文件工具仍受 MCP 工作区边界约束，但 Windows 不具备 Docker/Landlock 等同级系统隔离，因此默认推荐 Docker。
-
-## 密钥与认证
-
-- Runtime API Key 使用 Electron `safeStorage` 加密后保存。
-- MCP Bearer Token 由 `crypto.randomBytes(32)` 生成并加密保存。
-- 渲染进程只能查询“是否已经保存”，不能取回明文。
-- 日志元数据中匹配 `key/token/authorization/secret` 的字段会被替换为 `[已隐藏]`。
-- 代理 URL 禁止嵌入用户名和密码。
-
-## 部署状态机
+## 总体结构
 
 ```text
-配置校验
-→ 环境检测
-→ 停止本助手旧实例
-→ 启动 Docker 或便携运行时
-→ MCP 本地发现接口健康检查
-→ 启动 OpenAI Tunnel
-→ Tunnel 健康端口检查
-→ 完成
+Browser
+  │
+  │ HTTP JSON + Server-Sent Events
+  ▼
+web/server.js
+  │
+  ├─ SettingsStore / SecretStore / LogService
+  ├─ EnvironmentService / ProxyService
+  ├─ RuntimeOrchestrator
+  │    ├─ NativeService ──> python3 -m coding_tools_mcp
+  │    └─ TunnelService ──> resources/tools/tunnel-client
+  ├─ HealthService
+  └─ BuildVerificationService
 ```
 
-任意阶段失败都会产生结构化日志和用户可读错误，不继续执行后续阶段。
+默认监听：
 
-## 第三方许可
+- Web 管理服务：`127.0.0.1:17654`
+- Coding Tools MCP：`127.0.0.1:18765`
+- Tunnel health/UI：`127.0.0.1:18081`
 
-内置的 Coding Tools MCP 使用 Apache License 2.0。源码、LICENSE、NOTICE 与来源声明随安装包保留。
+端口可以在设置中调整，但绑定地址保持 loopback。
+
+## 浏览器层
+
+`renderer/index.html` 是唯一管理页面入口。
+
+`renderer/web-api.js` 把原来的桌面 API 契约改成：
+
+- `fetch()` 调用 REST API。
+- `EventSource` 接收 SSE。
+- `window.open(..., '_blank')` 打开受允许的外部页面。
+
+管理页包括运行状态、部署、工作目录、任务、构建验证、健康检查、日志、使用指南和设置。不再存在 ChatGPT 内嵌页面。
+
+## HTTP API
+
+主要 REST 接口：
+
+```text
+GET    /api/snapshot
+POST   /api/settings
+POST   /api/workspace/switch
+POST   /api/workspace/roots
+POST   /api/secrets/runtime-key
+DELETE /api/secrets/runtime-key
+POST   /api/secrets/mcp-token/regenerate
+POST   /api/runtime/start
+POST   /api/runtime/stop
+POST   /api/runtime/restart
+GET    /api/logs
+DELETE /api/logs
+GET    /api/task-state
+DELETE /api/task-state
+GET    /api/task-history
+GET    /api/build
+POST   /api/build/run
+GET    /api/health
+POST   /api/health/repair
+GET    /api/events
+```
+
+响应统一为：
+
+```json
+{"ok":true,"data":{}}
+```
+
+或：
+
+```json
+{"ok":false,"error":"message"}
+```
+
+SSE 事件：
+
+```text
+runtime:progress
+runtime:status
+runtime:heartbeat
+logs:entry
+build:progress
+```
+
+## Linux 路径
+
+`src/paths.js` 使用 XDG 目录：
+
+```text
+${XDG_CONFIG_HOME:-~/.config}/web-mcp-assistant
+${XDG_STATE_HOME:-~/.local/state}/web-mcp-assistant
+```
+
+工作区和额外授权根目录必须是 Linux 绝对路径。WSL 中的 Windows 文件应使用 `/mnt/<drive>/...` 形式。
+
+## 配置与密钥
+
+设置保存在：
+
+```text
+~/.config/web-mcp-assistant/settings.json
+```
+
+敏感值保存在：
+
+```text
+~/.config/web-mcp-assistant/secrets.json
+```
+
+密钥目录为 `0700`，密钥文件为 `0600`。服务内部可读取明文用于启动 Tunnel/MCP，但 Web API 仅返回布尔状态。
+
+## Python 与 Coding Tools MCP
+
+不再下载或维护便携 Python。
+
+`EnvironmentService` 只检测：
+
+```text
+python3
+python
+```
+
+版本必须为 3.11+。
+
+`NativeService` 使用系统 Python 启动仓库内的 `coding_tools_mcp`：
+
+```text
+python3 -m coding_tools_mcp \
+  --workspace <linux-absolute-path> \
+  --host 127.0.0.1 \
+  --port <mcp-port> \
+  --permission-mode <mode>
+```
+
+`PYTHONPATH` 指向仓库内的 Coding Tools MCP 源码和 `python_vendor`。
+
+## Tunnel
+
+Linux 二进制固定路径：
+
+```text
+resources/tools/tunnel-client
+```
+
+`TunnelService` 以环境变量传入 Runtime API Key 和 MCP Bearer Token，不把密钥直接写进命令行参数。
+
+关键参数包括：
+
+```text
+run
+--control-plane.tunnel-id
+--control-plane.api-key env:CONTROL_PLANE_API_KEY
+--health.listen-addr 127.0.0.1:<port>
+--mcp.server-url url=http://127.0.0.1:<port>/mcp,channel=main
+--mcp.extra-headers Authorization: env:MCP_RUNTIME_HEADER_VALUE
+--mcp.discovery-extra-headers Authorization: env:MCP_RUNTIME_HEADER_VALUE
+```
+
+仓库当前携带 OpenAI `tunnel-client` v0.0.10 Linux x64。
+
+## 进程生命周期
+
+运行状态保存在：
+
+```text
+~/.local/state/web-mcp-assistant/runtime-state.json
+```
+
+只对该文件中由本程序记录的 MCP/Tunnel PID 执行停止操作。
+
+停止流程：
+
+```text
+SIGTERM
+  ↓ 等待
+仍存活
+  ↓
+SIGKILL
+```
+
+不再调用 `taskkill.exe` 或任何 Windows 进程管理命令。
+
+## 代理
+
+代理来源只有：
+
+- `HTTPS_PROXY`
+- `https_proxy`
+- `HTTP_PROXY`
+- `http_proxy`
+- 用户手工输入的 HTTP(S) URL
+- 自动模式检测到的常见 localhost HTTP 代理端口
+
+不访问 Windows 注册表，不调用 `netsh.exe`。
+
+## 构建验证
+
+构建验证支持 Node.js、Python、Rust 和 Go 项目检测。
+
+用户明确发起后，命令通过：
+
+```text
+/bin/sh -lc <command>
+```
+
+执行。
+
+产物路径必须位于工作区内部，符号链接不会被遍历；产物文件计算 SHA-256。
+
+## 启停状态机
+
+启动大致顺序：
+
+```text
+加载设置
+  ↓
+检查工作区 / Python / Tunnel 二进制 / 密钥 / 端口 / 代理
+  ↓
+确保 MCP 本地认证 Token
+  ↓
+启动 Coding Tools MCP
+  ↓
+确认 MCP 运行
+  ↓
+启动 tunnel-client
+  ↓
+确认 Tunnel health 端口
+  ↓
+发布 runtime:status / heartbeat
+```
+
+停止顺序为 Tunnel -> MCP。
+
+## 不再存在的桌面能力
+
+Linux Web 分支明确删除：
+
+- Electron `BrowserWindow` / `WebContentsView`
+- preload / IPC
+- Tray
+- ChatGPT Cookie/session 管理
+- `safeStorage` / DPAPI
+- Windows 开机启动
+- 窗口关闭后驻留逻辑
+- NSIS / electron-builder
+- Windows `.exe` 工具
+- Windows 系统代理读取逻辑
+
+这些能力不是兼容层，而是从该分支中移除。

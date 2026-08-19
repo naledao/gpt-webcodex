@@ -14,5 +14,8 @@ out/
 *.bak
 resources/native-python/
 resources/*.zip
+__pycache__/
+*.py[cod]
+.pytest_cache/
 .DS_Store
 

@@ -22,7 +22,15 @@ function detectProject(root) {
     const runWord = manager === 'yarn' ? '' : 'run ';
     const scripts = pkg.scripts || {};
     const buildName = ['build', 'dist', 'package'].find((name) => scripts[name]) || '';
-    return { type: pkg.main ? 'electron' : 'node', name: pkg.name, version: pkg.version || '', manager, testCommand: scripts.test && !String(scripts.test).includes('no test specified') ? `${manager} ${runWord}test`.trim() : '', buildCommand: buildName ? `${manager} ${runWord}${buildName}`.trim() : '', artifacts: [pkg.build?.directories?.output || 'dist', 'build'] };
+    return {
+      type: 'node',
+      name: pkg.name,
+      version: pkg.version || '',
+      manager,
+      testCommand: scripts.test && !String(scripts.test).includes('no test specified') ? `${manager} ${runWord}test`.trim() : '',
+      buildCommand: buildName ? `${manager} ${runWord}${buildName}`.trim() : '',
+      artifacts: [pkg.build?.directories?.output || 'dist', 'build']
+    };
   }
   if (fs.existsSync(path.join(root, 'pyproject.toml'))) return { type: 'python', name: path.basename(root), version: '', manager: 'python', testCommand: fs.existsSync(path.join(root, 'tests')) ? 'python -m pytest' : '', buildCommand: 'python -m build', artifacts: ['dist'] };
   if (fs.existsSync(path.join(root, 'Cargo.toml'))) return { type: 'rust', name: path.basename(root), version: '', manager: 'cargo', testCommand: 'cargo test', buildCommand: 'cargo build --release', artifacts: ['target/release'] };
@@ -86,7 +94,12 @@ class BuildVerificationService {
       if (command.length > 1000 || /[\r\n\0]/.test(command)) throw new Error('构建命令格式不安全。');
       this.emit({ stage, status: 'running', command });
       const started = Date.now();
-      const result = await run('cmd.exe', ['/d', '/s', '/c', command], { cwd: root, allowFailure: true, timeoutMs: 600000, onOutput: (stream, text) => this.emit({ stage, status: 'output', stream, text }) });
+      const result = await run('/bin/sh', ['-lc', command], {
+        cwd: root,
+        allowFailure: true,
+        timeoutMs: 600000,
+        onOutput: (stream, text) => this.emit({ stage, status: 'output', stream, text })
+      });
       return { status: result.code === 0 ? 'passed' : 'failed', command, exitCode: result.code, durationMs: Date.now() - started, summary: `${result.stdout}\n${result.stderr}`.trim().slice(-4000) };
     };
     try {

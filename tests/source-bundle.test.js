@@ -2,50 +2,70 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
 
-test('required bundled runtime artifacts exist', () => {
-  const required = [
-    'resources/coding-tools-mcp/coding_tools_mcp/server.py',
-    'resources/coding-tools-mcp/LICENSE',
-    'resources/coding-tools-mcp/NOTICE',
-    'resources/tools/tunnel-client.exe',
-    'resources/tools/rg.exe',
-    'resources/tools/fd.exe',
-    'resources/coding-tools-mcp/python_vendor/pypdf/__init__.py',
-    'resources/coding-tools-mcp/python_vendor/jwt/__init__.py'
-  ];
-  for (const relative of required) assert.equal(fs.existsSync(path.join(root, relative)), true, relative);
+function collectFiles(directory) {
+  if (!fs.existsSync(directory)) return [];
+  const files = [];
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...collectFiles(full));
+    else if (entry.isFile()) files.push(full);
+  }
+  return files;
+}
+
+test('runtime source is pure Linux Web and Electron assets are absent', () => {
+  assert.equal(fs.existsSync(path.join(root, 'electron')), false);
+  assert.equal(fs.existsSync(path.join(root, 'scripts')), false);
+  for (const file of ['browser.html', 'browser.js', 'browser.css']) {
+    assert.equal(fs.existsSync(path.join(root, 'renderer', file)), false);
+  }
+  assert.equal(fs.existsSync(path.join(root, 'web', 'server.js')), true);
+  assert.equal(fs.existsSync(path.join(root, 'renderer', 'web-api.js')), true);
+
+  const tools = path.join(root, 'resources', 'tools');
+  const toolNames = fs.existsSync(tools) ? fs.readdirSync(tools) : [];
+  assert.equal(toolNames.some((name) => name.toLowerCase().endsWith('.exe')), false);
+
+  const runtimeFiles = [
+    ...collectFiles(path.join(root, 'src')),
+    ...collectFiles(path.join(root, 'web')),
+    ...collectFiles(path.join(root, 'renderer'))
+  ].filter((file) => /\.(js|html)$/.test(file));
+  const source = runtimeFiles.map((file) => fs.readFileSync(file, 'utf8')).join('\n');
+  for (const forbidden of [
+    "require('electron')", 'safeStorage', 'BrowserWindow', 'WebContentsView', 'ipcMain',
+    'taskkill.exe', 'cmd.exe', 'where.exe', 'reg.exe', 'netsh.exe',
+    'startWithWindows', 'keepRunningOnClose', 'clearChatSession', 'installPython'
+  ]) {
+    assert.equal(source.includes(forbidden), false, forbidden);
+  }
 });
 
-test('obsolete container runtime files are not bundled', () => {
-  assert.equal(fs.existsSync(path.join(root, 'electron/services/dockerService.js')), false);
-  assert.equal(fs.existsSync(path.join(root, 'resources/coding-tools-mcp/Dockerfile')), false);
+test('package scripts start the Web server and have no Electron dependencies', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  assert.equal(pkg.scripts.start, 'node web/server.js');
+  assert.equal(pkg.scripts.test, 'node --test tests/*.test.js');
+  assert.equal(pkg.main, undefined);
+  assert.equal(pkg.build, undefined);
+  assert.equal(Object.keys(pkg.dependencies || {}).some((name) => name.includes('electron')), false);
+  assert.equal(Object.keys(pkg.devDependencies || {}).some((name) => name.includes('electron')), false);
 });
 
-test('private runtime state is not bundled from the source checkout', () => {
-  assert.equal(fs.existsSync(path.join(root, 'resources/coding-tools-mcp/.coding-tools')), false);
-});
-
-test('portable Python does not contain a second stale coding_tools_mcp implementation', () => {
-  const duplicate = path.join(root, 'resources/native-python/Lib/site-packages/coding_tools_mcp');
-  assert.equal(fs.existsSync(path.join(duplicate, '__init__.py')), false);
-  assert.equal(fs.existsSync(path.join(duplicate, 'server.py')), false);
-  assert.equal(fs.existsSync(path.join(duplicate, 'transport_http.py')), false);
-});
-
-test('portable Python isolated path loads the single bundled coding_tools_mcp source', () => {
-  const pth = fs.readFileSync(path.join(root, 'resources/native-python/python312._pth'), 'utf8');
-  assert.match(pth, /\.\.\\coding-tools-mcp\\python_vendor/);
-  assert.match(pth, /\.\.\\coding-tools-mcp/);
-  const python = path.join(root, 'resources/native-python/python.exe');
-  const result = spawnSync(python, ['-m', 'coding_tools_mcp', '--help'], {
-    cwd: root,
-    encoding: 'utf8',
-    windowsHide: true
-  });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Serve workspace-confined coding tools over MCP/);
+test('Web API surface and loopback binding are declared', () => {
+  const server = fs.readFileSync(path.join(root, 'web', 'server.js'), 'utf8');
+  const api = fs.readFileSync(path.join(root, 'renderer', 'web-api.js'), 'utf8');
+  assert.match(server, /const HOST = '127\.0\.0\.1'/);
+  for (const endpoint of [
+    '/api/snapshot', '/api/settings', '/api/workspace/switch', '/api/workspace/roots',
+    '/api/secrets/runtime-key', '/api/secrets/mcp-token/regenerate',
+    '/api/runtime/start', '/api/runtime/stop', '/api/runtime/restart',
+    '/api/logs', '/api/task-state', '/api/task-history',
+    '/api/build', '/api/build/run', '/api/health', '/api/health/repair', '/api/events'
+  ]) assert.ok(server.includes(endpoint), endpoint);
+  for (const event of ['runtime:progress', 'runtime:status', 'runtime:heartbeat', 'logs:entry', 'build:progress']) {
+    assert.ok(`${server}\n${api}`.includes(event), event);
+  }
 });

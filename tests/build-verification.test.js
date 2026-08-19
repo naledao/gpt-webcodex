@@ -3,32 +3,37 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { detectProject, collectArtifacts, requireWorkspace } = require('../electron/services/buildVerificationService');
 
-test('build verification detects Electron package scripts', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'web-mcp-build-'));
+const { detectProject, collectArtifacts } = require('../src/services/buildVerificationService');
+
+test('Node projects are detected without Electron semantics', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'web-mcp-build-'));
   try {
-    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'demo', version: '1.2.3', main: 'main.js', scripts: { test: 'node --test', dist: 'electron-builder' }, build: { directories: { output: 'release' } } }));
-    const project = detectProject(root);
-    assert.equal(project.type, 'electron');
+    fs.writeFileSync(path.join(temp, 'package.json'), JSON.stringify({
+      name: 'demo', version: '1.2.3', scripts: { test: 'node --test', build: 'node build.js' }
+    }));
+    const project = detectProject(temp);
+    assert.equal(project.type, 'node');
+    assert.equal(project.name, 'demo');
     assert.equal(project.testCommand, 'npm run test');
-    assert.equal(project.buildCommand, 'npm run dist');
-    assert.deepEqual(project.artifacts, ['release', 'build']);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    assert.equal(project.buildCommand, 'npm run build');
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
 });
 
-test('artifact collection rejects paths outside workspace and hashes files', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'web-mcp-artifact-'));
+test('artifact collection hashes files and blocks paths outside workspace', async () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'web-mcp-artifacts-'));
   try {
-    fs.mkdirSync(path.join(root, 'dist'));
-    fs.writeFileSync(path.join(root, 'dist', 'app.exe'), 'artifact');
-    const artifacts = await collectArtifacts(root, ['dist']);
+    const dist = path.join(temp, 'dist');
+    fs.mkdirSync(dist);
+    fs.writeFileSync(path.join(dist, 'app.txt'), 'hello');
+    const artifacts = await collectArtifacts(temp, ['dist']);
     assert.equal(artifacts.length, 1);
-    assert.equal(artifacts[0].sha256.length, 64);
-    await assert.rejects(() => collectArtifacts(root, ['..']), /工作目录内/);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
-});
-
-test('workspace is required before build verification', () => {
-  assert.throws(() => requireWorkspace(''), /选择工作目录/);
+    assert.equal(artifacts[0].path.replace(/\\/g, '/'), 'dist/app.txt');
+    assert.match(artifacts[0].sha256, /^[A-F0-9]{64}$/);
+    await assert.rejects(() => collectArtifacts(temp, ['../outside']), /工作目录内/);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
 });

@@ -1,43 +1,15 @@
-﻿const api = window.mcpAssistant || createPreviewApi();
-
-function createPreviewApi() {
-  const previewSettings = {
-    workspace: 'C:\\Users\\示例用户\\Desktop\\my-project', permissionMode: 'safe', toolMode: 'smart',
-    mcpPort: 18765, healthPort: 18081, proxyMode: 'auto', proxyUrl: '', tunnelId: 'tunnel_demo',
-    theme: 'light', startWithWindows: false, progressReportSeconds: 90, keepRunningOnClose: true, autoStartServices: false, firstRunCompleted: true, guideProgress: {}, authorizedRoots: []
-  };
-  const snapshot = {
-    settings: previewSettings,
-    secrets: { runtimeApiKey: true, mcpAuthToken: true },
-    environment: {
-      python: { installed: true, version: 'Python 3.12.10' },
-      proxy: { mode: 'auto', configured: false, reachable: true, source: 'auto-direct', url: '' }, tunnelClient: { installed: true },
-      workspace: { configured: true, exists: true }, ports: { mcpListening: true, tunnelListening: true }
-    },
-    status: { busy: false, runtimeRunning: true, tunnelRunning: true, fullyReady: true, localMcpUrl: 'http://127.0.0.1:18765/mcp', tunnelUiUrl: 'http://127.0.0.1:18081/ui' }
-  };
-  const ok = (data) => Promise.resolve({ ok: true, data });
-  return {
-    snapshot: () => ok(snapshot), chooseWorkspace: () => ok(snapshot.settings.workspace), switchWorkspace: (workspace) => { snapshot.settings.workspace=workspace; return ok(snapshot); }, updateAuthorizedRoots: (roots) => { snapshot.settings.authorizedRoots=roots; return ok(snapshot); }, closeManager: () => ok(true),
-    saveSettings: (patch) => { Object.assign(snapshot.settings, patch); return ok(snapshot.settings); },
-    saveRuntimeKey: () => ok(snapshot.secrets), removeRuntimeKey: () => ok(snapshot.secrets), regenerateMcpToken: () => ok(snapshot.secrets),
-    start: () => ok(snapshot), stop: () => ok(snapshot), restart: () => ok(snapshot),
-    logs: () => ok([{ time: new Date().toISOString(), level: 'info', message: '静态界面预览模式' }]), clearLogs: () => ok(true),
-    taskState: () => ok({ exists: false, state: null }), clearTaskState: () => ok(true), pauseTask: () => ok({}), resumeTask: () => ok({}), stopTask: () => ok({}), taskHistory: () => ok([]), performanceTrace: () => ok(null), clearPerformanceTrace: () => ok(true),
-    inspectBuild: () => ok({ type: 'electron', name: 'demo', version: '0.1.0', testCommand: 'npm test', buildCommand: 'npm run dist', artifacts: ['dist'] }), runBuild: () => ok({ overallStatus: 'passed', project: { type: 'electron', name: 'demo', version: '0.1.0' }, testResult: { status: 'passed' }, buildResult: { status: 'passed' }, artifacts: [] }), inspectHealth: () => ok({ healthy: true, checks: [] }), repairHealth: () => ok({ healthy: true, checks: [], actions: [], unresolved: [] }),
-    openExternal: () => ok(true), installPython: () => ok(true), detectProxy: () => ok(snapshot.environment.proxy), onProgress: () => () => {}, onLog: () => () => {}, onStatus: () => () => {}, onHeartbeat: () => () => {}, onBuildProgress: () => () => {}
-  };
-}
+const api = window.mcpAssistant;
+if (!api) throw new Error('Web API 未加载，请通过 node web/server.js 启动管理页面。');
 
 const pageMeta = {
   overview: ['CONTROL CENTER', '运行总览', '集中查看本地 MCP、OpenAI Tunnel 与部署环境。'],
-  deploy: ['RUNTIME & CONNECTION', '运行与连接', '管理便携运行时、Tunnel 身份和网络环境。'],
+  deploy: ['RUNTIME & CONNECTION', '运行与连接', '管理系统 Python、Tunnel 身份和网络环境。'],
   workspace: ['WORKSPACE ACCESS', '工作区与权限', '管理主工作区、额外授权目录与命令权限。'],
   task: ['TASK STATE', '任务执行状态', '查看可恢复目标、执行步骤、命令、测试、文件和构建报告。'],
   build: ['BUILD & VERIFY', '构建与验证', '自动识别项目、执行测试与构建，并校验构建产物。'],
   health: ['DIAGNOSE & REPAIR', '诊断与修复', '检查运行环境并修复助手能够安全处理的问题。'],
   guide: ['SETUP GUIDE', '接入指南', '按步骤完成 OpenAI Tunnel 与 ChatGPT 网页连接。'],
-  logs: ['DIAGNOSTICS', '运行日志', '查看便携运行时、MCP 和 Tunnel 的诊断信息。'],
+  logs: ['DIAGNOSTICS', '运行日志', '查看本地 MCP 和 Tunnel 的诊断信息。'],
   settings: ['PREFERENCES', '偏好设置', '管理外观、启动行为、任务反馈和本地凭据。']
 };
 
@@ -224,8 +196,7 @@ function applyFormValues(snapshot, force = false) {
   $('#proxyUrlInput').value = settings.proxyUrl || '';
   $('#mcpPortInput').value = settings.mcpPort;
   $('#healthPortInput').value = settings.healthPort;
-  $('#startWithWindowsToggle').checked = Boolean(settings.startWithWindows);
-  $('#keepRunningToggle').checked = settings.keepRunningOnClose;
+  $('#workspacePathInput').value = settings.workspace || '';
   $('#autoStartToggle').checked = settings.autoStartServices;
   $('#progressReportSelect').value = String(settings.progressReportSeconds || 90);
   if ($('#toolModeSelect')) $('#toolModeSelect').value = 'smart';
@@ -253,7 +224,7 @@ function renderSnapshot(snapshot, options = {}) {
   $('#sideTunnel').textContent = status.tunnelRunning ? 'ON' : 'OFF';
 
   $('#runtimeStatus').textContent = environment.python.installed ? '环境正常' : '运行时缺失';
-  $('#runtimeMeta').textContent = environment.python.version || '未找到内置 Python';
+  $('#runtimeMeta').textContent = environment.python.version || '未找到 Python 3.11+';
   setDot($('#runtimeDot'), environment.python.installed ? 'ready' : 'error');
 
   $('#mcpStatus').textContent = status.runtimeRunning ? '正常运行' : '未启动';
@@ -271,14 +242,14 @@ function renderSnapshot(snapshot, options = {}) {
   $('#heroBadge').textContent = ready ? '全部服务运行正常' : '尚未完成部署';
   $('#heroTitle').textContent = ready ? '网页编程工作区已经准备好' : '让网页聊天安全访问你的代码目录';
   $('#heroText').textContent = ready
-    ? '当前通过内置便携运行时运行，网页只可访问所选工作目录。'
+    ? '当前通过 Linux 系统 Python 运行，网页只可访问所选工作目录。'
     : '选择一个工作目录，配置 OpenAI Tunnel，然后由助手完成 MCP 的启动、鉴权、健康检查和故障诊断。';
   $('#heroStartButton').textContent = ready ? '重新部署' : '开始部署';
   $('#topStartButton').textContent = ready ? '重新部署' : '一键启动';
 
-  $('#runtimeKeyHint').textContent = secrets.runtimeApiKey ? '已使用 Windows 安全存储保存' : '尚未保存';
+  $('#runtimeKeyHint').textContent = secrets.runtimeApiKey ? '已保存到本机 secrets.json（0600）' : '尚未保存';
   $('#runtimeKeyHint').style.color = secrets.runtimeApiKey ? 'var(--green)' : '';
-  $('#settingsKeyState').textContent = secrets.runtimeApiKey ? '已加密保存' : '尚未保存';
+  $('#settingsKeyState').textContent = secrets.runtimeApiKey ? '已保存（0600）' : '尚未保存';
   $('#guideLocalUrl').textContent = status.localMcpUrl;
   $('#guideTunnelId').textContent = settings.tunnelId || '尚未填写';
   renderEnvironment(environment);
@@ -314,14 +285,16 @@ function renderAuthorizedRoots(roots) {
 
 async function addAuthorizedRoot() {
   try {
-    const selected = unwrap(await api.chooseWorkspace());
+    const selected = $('#authorizedRootInput').value.trim();
     if (!selected) return;
+    if (!selected.startsWith('/')) throw new Error('请输入 Linux 绝对路径。');
     const current = state.snapshot?.settings?.authorizedRoots || [];
-    if (current.some((item) => item.toLowerCase() === selected.toLowerCase())) {
+    if (current.includes(selected)) {
       toast('目录已授权', selected);
       return;
     }
     const snapshot = unwrap(await api.updateAuthorizedRoots([...current, selected]));
+    $('#authorizedRootInput').value = '';
     renderSnapshot(snapshot, { forceForms: true });
     toast('已添加授权目录', selected);
   } catch (error) { toast('授权目录失败', error.message, 'error'); }
@@ -341,8 +314,8 @@ function renderEnvironment(environment) {
   $('#envPythonText').textContent = environment.python.installed ? environment.python.version : '未找到 Python 3.11+';
   const proxy = environment.proxy;
   const sourceLabels = {
-    'auto-direct': '自动检测 · 直连', 'auto-system': '自动检测 · Windows 系统代理', 'auto-local': '自动检测 · 本地代理',
-    'system': 'Windows 系统代理', 'system-direct': '系统未设代理 · 直连', manual: '手动代理', direct: '强制直连',
+    'auto-direct': '自动检测 · 直连', 'auto-environment': '自动检测 · 环境变量代理', 'auto-local': '自动检测 · 本地代理',
+    environment: '环境变量代理', 'environment-direct': '环境变量未提供可用代理 · 直连', manual: '手动代理', direct: '强制直连',
     'auto-unavailable': '未找到可用网络路径', error: '代理检测失败'
   };
   setDot($('#envProxyDot'), proxy.reachable ? 'ready' : 'error');
@@ -360,12 +333,12 @@ function renderDeploySummary() {
   const snapshot = state.snapshot;
   if (!snapshot) return;
   const missing = [];
-  const workspace = state.selectedWorkspace || snapshot.settings.workspace;
+  const workspace = $('#workspacePathInput')?.value.trim() || state.selectedWorkspace || snapshot.settings.workspace;
   const tunnelId = $('#tunnelIdInput').value.trim();
   if (!workspace) missing.push('工作目录');
   if (!tunnelId) missing.push('Tunnel ID');
   if (!snapshot.secrets.runtimeApiKey && !$('#runtimeKeyInput').value.trim()) missing.push('Runtime API Key');
-  $('#deploySummary').textContent = missing.length ? `还需要填写：${missing.join('、')}` : '便携运行模式已完成必要配置。';
+  $('#deploySummary').textContent = missing.length ? `还需要填写：${missing.join('、')}` : 'Linux Web 运行模式已完成必要配置。';
 }
 
 async function refreshSnapshot(options = {}) {
@@ -381,7 +354,6 @@ async function refreshSnapshot(options = {}) {
 
 function collectSettings() {
   return {
-    workspace: state.selectedWorkspace,
     permissionMode: $('input[name="permission"]:checked')?.value || 'safe',
     toolMode: 'smart',
     mcpPort: Number($('#mcpPortInput').value),
@@ -390,8 +362,6 @@ function collectSettings() {
     proxyUrl: $('#proxyUrlInput').value.trim(),
     tunnelId: $('#tunnelIdInput').value.trim(),
     theme: $('#themeSelect').value,
-    startWithWindows: $('#startWithWindowsToggle').checked,
-    keepRunningOnClose: $('#keepRunningToggle').checked,
     autoStartServices: $('#autoStartToggle').checked,
     progressReportSeconds: Number($('#progressReportSelect').value || 90),
     guideProgress: collectGuideProgress()
@@ -443,6 +413,8 @@ async function runRuntime(action) {
 async function deployNow() {
   setBusy(true, false);
   try {
+    const typedWorkspace = $('#workspacePathInput').value.trim();
+    if (typedWorkspace && typedWorkspace !== state.snapshot?.settings?.workspace) await applyWorkspacePath(false);
     await saveKeyIfPresent();
     await saveSettings(false);
     navigate('overview');
@@ -457,18 +429,24 @@ async function deployNow() {
   }
 }
 
+async function applyWorkspacePath(showToast = true) {
+  const selected = $('#workspacePathInput').value.trim();
+  if (!selected) throw new Error('请填写 Linux 工作目录。');
+  if (!selected.startsWith('/')) throw new Error('请输入 Linux 绝对路径，例如 /home/user/project。');
+  if (selected === state.snapshot?.settings?.workspace) return state.snapshot;
+  state.selectedWorkspace = selected;
+  $('#selectedWorkspace').textContent = selected;
+  renderDeploySummary();
+  if (showToast) toast('正在切换工作目录', 'MCP 会在后台重建，Tunnel 保持由管理服务控制。');
+  const switched = unwrap(await api.switchWorkspace(selected));
+  renderSnapshot(switched, { forceForms: true });
+  if (showToast) toast('工作目录已切换', selected);
+  return switched;
+}
+
 async function chooseWorkspace() {
-  try {
-    const selected = unwrap(await api.chooseWorkspace());
-    if (!selected) return;
-    state.selectedWorkspace = selected;
-    $('#selectedWorkspace').textContent = selected;
-    renderDeploySummary();
-    toast('正在切换工作目录', 'MCP 会在后台静默重建，ChatGPT 与 Tunnel 不会关闭。');
-    const switched = unwrap(await api.switchWorkspace(selected));
-    renderSnapshot(switched, { forceForms: true });
-    toast('工作目录已切换', selected);
-  } catch (error) { toast('无法选择目录', error.message, 'error'); }
+  try { await applyWorkspacePath(true); }
+  catch (error) { toast('无法应用目录', error.message, 'error'); }
 }
 
 async function copyText(text) {
@@ -636,7 +614,6 @@ function renderLogs() {
 }
 
 function bindEvents() {
-  $('#closeManager')?.addEventListener('click', () => api.closeManager());
   $$('.nav-item').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.page)));
   $$('[data-nav]').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.nav)));
   $$('[data-open]').forEach((button) => button.addEventListener('click', async () => {
@@ -656,21 +633,27 @@ function bindEvents() {
   $('#chooseWorkspace').addEventListener('click', chooseWorkspace);
   $('#addAuthorizedRoot').addEventListener('click', addAuthorizedRoot);
   $('#saveDeploySettings').addEventListener('click', async () => {
-    try { await saveKeyIfPresent(); await saveSettings(); await refreshSnapshot({ forceForms: true }); }
+    try {
+      const typedWorkspace = $('#workspacePathInput').value.trim();
+      if (typedWorkspace && typedWorkspace !== state.snapshot?.settings?.workspace) await applyWorkspacePath(false);
+      await saveKeyIfPresent();
+      await saveSettings();
+      await refreshSnapshot({ forceForms: true });
+    }
     catch (error) { toast('保存失败', error.message, 'error'); }
   });
   $('#saveWorkspace').addEventListener('click', async () => {
-    try { await saveSettings(); await refreshSnapshot({ forceForms: true }); }
+    try { await applyWorkspacePath(false); await saveSettings(); await refreshSnapshot({ forceForms: true }); }
     catch (error) { toast('保存失败', error.message, 'error'); }
   });
   $('#saveWorkspaceRestart').addEventListener('click', async () => {
-    try { await saveSettings(false); await runRuntime('restart'); }
+    try { await applyWorkspacePath(false); await saveSettings(false); await runRuntime('restart'); }
     catch (error) { toast('重新部署失败', error.message, 'error'); }
   });
   $('#saveRuntimeKey').addEventListener('click', async () => {
     try {
       if (!(await saveKeyIfPresent())) throw new Error('请先粘贴 Runtime API Key。');
-      toast('密钥已安全保存', '密钥已使用 Windows 安全存储加密。');
+      toast('密钥已保存', '密钥文件仅供当前 Linux 用户读取（0600）。');
       await refreshSnapshot();
     } catch (error) { toast('保存失败', error.message, 'error'); }
   });
@@ -682,19 +665,6 @@ function bindEvents() {
     try { unwrap(await api.regenerateMcpToken()); toast('认证 Token 已重新生成', '重新部署后生效。'); }
     catch (error) { toast('生成失败', error.message, 'error'); }
   });
-  $('#clearChatSession').addEventListener('click', async () => {
-    if (!confirm('这会退出内联 ChatGPT，并清除该助手保存的网页 Cookie 和缓存。是否继续？')) return;
-    try {
-      unwrap(await api.clearChatSession());
-      toast('ChatGPT 登录数据已清除', '返回聊天主窗口后可以重新登录。');
-    } catch (error) { toast('清除失败', error.message, 'error'); }
-  });
-  $('#pythonInstall').addEventListener('click', async () => {
-    setBusy(true, true);
-    try { unwrap(await api.installPython()); toast('Python 安装完成', '请重新检测环境。'); await refreshSnapshot(); }
-    catch (error) { toast('安装失败', error.message, 'error'); }
-    finally { setBusy(false); }
-  });
   $('#proxyModeSelect').addEventListener('change', () => { renderProxyControls(); renderDeploySummary(); });
   $('#proxyDetect').addEventListener('click', async () => {
     try {
@@ -704,7 +674,7 @@ function bindEvents() {
       await refreshSnapshot({ forceForms: true });
     } catch (error) { toast('代理检测失败', error.message, 'error'); }
   });
-  ['#tunnelIdInput', '#proxyUrlInput', '#runtimeKeyInput'].forEach((selector) => $(selector).addEventListener('input', renderDeploySummary));
+  ['#tunnelIdInput', '#proxyUrlInput', '#runtimeKeyInput', '#workspacePathInput'].forEach((selector) => $(selector).addEventListener('input', renderDeploySummary));
 
   $('#themeToggle').addEventListener('click', async () => {
     const next = document.body.dataset.theme === 'light' ? 'dark' : 'light';
@@ -712,7 +682,6 @@ function bindEvents() {
     try { await saveSettings(false); } catch { /* non-critical */ }
   });
   $('#themeSelect').addEventListener('change', async () => { applyTheme($('#themeSelect').value); await saveSettings(false); });
-  $('#keepRunningToggle').addEventListener('change', () => saveSettings(false));
   $('#autoStartToggle').addEventListener('change', () => saveSettings(false));
 
   $$('[data-guide-check]').forEach((input) => input.addEventListener('change', async () => {
@@ -728,7 +697,7 @@ function bindEvents() {
   $('#refreshTaskHistory').addEventListener('click', loadTaskHistory);
   $('#pauseTask').addEventListener('click', async () => { try { unwrap(await api.pauseTask()); await loadTaskState(); toast('任务已暂停', '当前进度已保存在工作区。'); } catch (error) { toast('暂停失败', error.message, 'error'); } });
   $('#resumeTask').addEventListener('click', async () => { try { unwrap(await api.resumeTask()); await loadTaskState(); toast('任务已继续', '网页模型可从记录的下一步恢复。'); } catch (error) { toast('继续失败', error.message, 'error'); } });
-  $('#stopTask').addEventListener('click', async () => { if (!confirm('确定停止当前任务吗？运行中的命令会被终止。')) return; try { unwrap(await api.stopTask()); await loadTaskState(); toast('任务已停止', '状态与历史仍保留，可稍后继续。'); } catch (error) { toast('停止失败', error.message, 'error'); } });
+  $('#stopTask').addEventListener('click', async () => { if (!confirm('确定把当前任务标记为停止吗？')) return; try { unwrap(await api.stopTask()); await loadTaskState(); toast('任务已标记为停止', '状态与历史仍保留，可稍后继续。'); } catch (error) { toast('停止失败', error.message, 'error'); } });
   $('#clearTaskState').addEventListener('click', async () => { if (!confirm('确定清除当前工作区的任务状态吗？')) return; unwrap(await api.clearTaskState()); renderTaskState(null); toast('任务状态已清除'); });
   $('#refreshPerformance').addEventListener('click', loadPerformanceTrace);
   $('#clearPerformance').addEventListener('click', async () => { if (!confirm('确定清空当前工作区的性能记录吗？')) return; try { unwrap(await api.clearPerformanceTrace()); renderPerformanceTrace(null); toast('性能记录已清空'); } catch (error) { toast('清空失败', error.message, 'error'); } });

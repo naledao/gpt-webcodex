@@ -1,7 +1,7 @@
-﻿const path = require('node:path');
+const path = require('node:path');
 
 const DEFAULTS = Object.freeze({
-  configVersion: 5,
+  configVersion: 6,
   workspace: '',
   permissionMode: 'safe',
   toolMode: 'smart',
@@ -11,9 +11,7 @@ const DEFAULTS = Object.freeze({
   proxyUrl: '',
   tunnelId: '',
   tunnelProfile: 'coding-tools',
-  startWithWindows: false,
   autoStartServices: false,
-  keepRunningOnClose: true,
   progressReportSeconds: 90,
   theme: 'light',
   firstRunCompleted: false,
@@ -25,13 +23,12 @@ const DEFAULTS = Object.freeze({
 function normalizeWorkspacePath(value) {
   const text = String(value || '').trim();
   if (!text) return '';
-  const normalized = path.normalize(text).replace(/[\\/]+$/, '');
-  return normalized || path.parse(text).root || text;
+  const normalized = path.posix.normalize(text).replace(/\/+$/, '');
+  return normalized || '/';
 }
 
 function workspaceKey(value) {
-  const normalized = normalizeWorkspacePath(value);
-  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  return normalizeWorkspacePath(value);
 }
 
 function mergeRecentWorkspaces(existing, workspace, limit = 50) {
@@ -57,10 +54,11 @@ function normalize(input = {}) {
   for (const key of Object.keys(DEFAULTS)) {
     if (Object.hasOwn(input, key)) merged[key] = input[key];
   }
-  merged.configVersion = 5;
+  merged.configVersion = 6;
   merged.permissionMode = ['safe', 'trusted'].includes(merged.permissionMode) ? merged.permissionMode : 'safe';
   merged.toolMode = 'smart';
-  merged.proxyMode = ['auto', 'system', 'manual', 'direct'].includes(merged.proxyMode) ? merged.proxyMode : 'auto';
+  if (input.proxyMode === 'system') merged.proxyMode = 'environment';
+  merged.proxyMode = ['auto', 'environment', 'manual', 'direct'].includes(merged.proxyMode) ? merged.proxyMode : 'auto';
   merged.mcpPort = Number.isInteger(Number(merged.mcpPort)) ? Number(merged.mcpPort) : 18765;
   merged.healthPort = Number.isInteger(Number(merged.healthPort)) ? Number(merged.healthPort) : 18081;
   merged.proxyUrl = String(merged.proxyUrl || '').trim();
@@ -68,6 +66,7 @@ function normalize(input = {}) {
   merged.tunnelId = String(merged.tunnelId || '').trim();
   if (sourceVersion < 5 && merged.theme === 'dark') merged.theme = 'light';
   merged.theme = merged.theme === 'dark' ? 'dark' : 'light';
+  merged.autoStartServices = Boolean(merged.autoStartServices);
   merged.progressReportSeconds = [60, 90, 120, 180].includes(Number(merged.progressReportSeconds))
     ? Number(merged.progressReportSeconds)
     : 90;
@@ -88,12 +87,11 @@ function validateRuntimeSettings(settings) {
     if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error(`${label}必须在 1024-65535 之间。`);
   }
   if (settings.mcpPort === settings.healthPort) throw new Error('MCP 端口和 Tunnel 健康端口不能相同。');
+  if (settings.workspace && !path.posix.isAbsolute(settings.workspace)) throw new Error('工作目录必须是 Linux 绝对路径。');
   if (settings.tunnelId && !/^tunnel_[A-Za-z0-9_-]{4,}$/.test(settings.tunnelId)) {
     throw new Error('Tunnel ID 格式不正确，应以 tunnel_ 开头。');
   }
-  if (settings.proxyMode === 'manual' && !settings.proxyUrl) {
-    throw new Error('手动代理模式需要填写代理地址。');
-  }
+  if (settings.proxyMode === 'manual' && !settings.proxyUrl) throw new Error('手动代理模式需要填写代理地址。');
   if (settings.proxyUrl) {
     let parsed;
     try { parsed = new URL(settings.proxyUrl); } catch { throw new Error('代理地址不是有效 URL。'); }
@@ -110,4 +108,3 @@ module.exports = {
   workspaceKey,
   mergeRecentWorkspaces
 };
-

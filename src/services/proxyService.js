@@ -1,7 +1,6 @@
 const net = require('node:net');
 const tls = require('node:tls');
 const https = require('node:https');
-const { run } = require('./commandRunner');
 
 const COMMON_LOCAL_PORTS = [10808, 10809, 7890, 7897, 8080];
 const CACHE_TTL = 60_000;
@@ -42,33 +41,13 @@ function normalizeProxyValue(value) {
   }
 }
 
-async function registryProxyCandidates() {
-  if (process.platform !== 'win32') return [];
-  const result = await run('reg.exe', [
-    'query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
-  ], { allowFailure: true });
-  if (result.code !== 0 || !/ProxyEnable\s+REG_DWORD\s+0x1/i.test(result.stdout)) return [];
-  const match = result.stdout.match(/ProxyServer\s+REG_SZ\s+(.+)/i);
-  return match ? [normalizeProxyValue(match[1])] : [];
-}
-
-async function winHttpProxyCandidates() {
-  if (process.platform !== 'win32') return [];
-  const result = await run('netsh.exe', ['winhttp', 'show', 'proxy'], { allowFailure: true });
-  if (result.code !== 0) return [];
-  const lines = result.stdout.split(/\r?\n/);
-  const candidate = lines.map((line) => line.match(/(?:Proxy Server\(s\)|代理服务器)\s*:\s*(.+)/i)?.[1]).find(Boolean);
-  return candidate ? [normalizeProxyValue(candidate)] : [];
-}
-
 function environmentProxyCandidates() {
-  return [process.env.HTTPS_PROXY, process.env.https_proxy, process.env.HTTP_PROXY, process.env.http_proxy]
-    .map(normalizeProxyValue);
-}
-
-async function systemProxyCandidates() {
-  const [registry, winHttp] = await Promise.all([registryProxyCandidates(), winHttpProxyCandidates()]);
-  return unique([...environmentProxyCandidates(), ...registry, ...winHttp]);
+  return unique([
+    process.env.HTTPS_PROXY,
+    process.env.https_proxy,
+    process.env.HTTP_PROXY,
+    process.env.http_proxy
+  ].map(normalizeProxyValue));
 }
 
 function probeDirect(timeout = 2500) {
@@ -134,7 +113,7 @@ async function firstWorkingProxy(candidates) {
 }
 
 async function resolveProxy(settings, options = {}) {
-  const mode = ['auto', 'system', 'manual', 'direct'].includes(settings.proxyMode) ? settings.proxyMode : 'auto';
+  const mode = ['auto', 'environment', 'manual', 'direct'].includes(settings.proxyMode) ? settings.proxyMode : 'auto';
   const key = JSON.stringify({ mode, proxyUrl: settings.proxyUrl || '' });
   if (!options.force && cache && cache.key === key && Date.now() - cache.time < CACHE_TTL) return cache.value;
 
@@ -145,18 +124,23 @@ async function resolveProxy(settings, options = {}) {
     const resolvedUrl = normalizeProxyValue(settings.proxyUrl);
     value = { mode, resolvedUrl, source: 'manual', reachable: Boolean(resolvedUrl && await probeHttpProxy(resolvedUrl)) };
   } else {
-    const system = await systemProxyCandidates();
-    if (mode === 'system') {
-      const resolvedUrl = await firstWorkingProxy(system);
+    const environment = environmentProxyCandidates();
+    if (mode === 'environment') {
+      const resolvedUrl = await firstWorkingProxy(environment);
       value = resolvedUrl
-        ? { mode, resolvedUrl, source: 'system', reachable: true }
-        : { mode, resolvedUrl: '', source: 'system-direct', reachable: await probeDirect() };
+        ? { mode, resolvedUrl, source: 'environment', reachable: true }
+        : { mode, resolvedUrl: '', source: 'environment-direct', reachable: await probeDirect() };
     } else if (await probeDirect()) {
       value = { mode, resolvedUrl: '', source: 'auto-direct', reachable: true };
     } else {
       const local = await commonLocalCandidates();
-      const resolvedUrl = await firstWorkingProxy([...system, ...local]);
-      value = { mode, resolvedUrl, source: resolvedUrl ? (system.includes(resolvedUrl) ? 'auto-system' : 'auto-local') : 'auto-unavailable', reachable: Boolean(resolvedUrl) };
+      const resolvedUrl = await firstWorkingProxy([...environment, ...local]);
+      value = {
+        mode,
+        resolvedUrl,
+        source: resolvedUrl ? (environment.includes(resolvedUrl) ? 'auto-environment' : 'auto-local') : 'auto-unavailable',
+        reachable: Boolean(resolvedUrl)
+      };
     }
   }
   cache = { key, time: Date.now(), value };
@@ -169,7 +153,6 @@ module.exports = {
   COMMON_LOCAL_PORTS,
   normalizeProxyValue,
   environmentProxyCandidates,
-  systemProxyCandidates,
   probeDirect,
   probeHttpProxy,
   resolveProxy,

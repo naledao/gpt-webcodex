@@ -5,8 +5,13 @@ const paths = require('../paths');
 const { resolveProxy } = require('./proxyService');
 
 async function commandExists(name) {
-  const result = await run('where.exe', [name], { allowFailure: true });
-  return result.code === 0;
+  if (!/^[A-Za-z0-9._+-]+$/.test(String(name || ''))) return false;
+  try {
+    const result = await run('/bin/sh', ['-lc', `command -v -- ${name}`], { allowFailure: true });
+    return result.code === 0;
+  } catch {
+    return false;
+  }
 }
 
 function canConnect(host, port, timeout = 800) {
@@ -21,28 +26,32 @@ function canConnect(host, port, timeout = 800) {
 }
 
 async function pythonStatus() {
-  const candidates = [];
-  if (fs.existsSync(paths.portablePython())) {
-    const pythonw = pathForPythonw(paths.portablePython());
-    candidates.push({ command: paths.portablePython(), launchCommand: fs.existsSync(pythonw) ? pythonw : paths.portablePython(), args: [] });
-  }
-  if (await commandExists('py.exe')) candidates.push({ command: 'py.exe', launchCommand: await commandExists('pyw.exe') ? 'pyw.exe' : 'py.exe', args: ['-3'] });
-  if (await commandExists('python.exe')) candidates.push({ command: 'python.exe', launchCommand: await commandExists('pythonw.exe') ? 'pythonw.exe' : 'python.exe', args: [] });
-  for (const candidate of candidates) {
-    const result = await run(candidate.command, [...candidate.args, '--version'], { allowFailure: true });
+  for (const command of ['python3', 'python']) {
+    let result;
+    try {
+      result = await run(command, ['--version'], { allowFailure: true });
+    } catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      continue;
+    }
     const output = `${result.stdout} ${result.stderr}`.trim();
     const match = output.match(/Python\s+(\d+)\.(\d+)\.(\d+)/i);
     const major = match ? Number(match[1]) : 0;
     const minor = match ? Number(match[2]) : 0;
     if (result.code === 0 && match && (major > 3 || (major === 3 && minor >= 11))) {
-      return { installed: true, command: candidate.command, launchCommand: candidate.launchCommand, prefixArgs: candidate.args, version: match[0] };
+      return { installed: true, command, launchCommand: command, prefixArgs: [], version: match[0] };
     }
   }
   return { installed: false, command: '', launchCommand: '', prefixArgs: [], version: '' };
 }
 
-function pathForPythonw(pythonPath) {
-  return require('node:path').join(require('node:path').dirname(pythonPath), 'pythonw.exe');
+function isExecutable(file) {
+  try {
+    fs.accessSync(file, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 class EnvironmentService {
@@ -53,6 +62,7 @@ class EnvironmentService {
       canConnect('127.0.0.1', settings.mcpPort),
       canConnect('127.0.0.1', settings.healthPort)
     ]);
+    const tunnelPath = paths.tunnelExecutable();
     return {
       platform: process.platform,
       python,
@@ -63,13 +73,11 @@ class EnvironmentService {
         url: proxy.resolvedUrl,
         source: proxy.source
       },
-      tunnelClient: { installed: fs.existsSync(paths.tunnelExecutable()), path: paths.tunnelExecutable() },
+      tunnelClient: { installed: isExecutable(tunnelPath), path: tunnelPath },
       workspace: { configured: Boolean(settings.workspace), exists: Boolean(settings.workspace && fs.existsSync(settings.workspace)) },
-      ports: { mcpListening, tunnelListening },
-      nativePortableReady: fs.existsSync(paths.portablePython())
+      ports: { mcpListening, tunnelListening }
     };
   }
-
 }
 
-module.exports = { EnvironmentService, commandExists, canConnect, pythonStatus };
+module.exports = { EnvironmentService, commandExists, canConnect, pythonStatus, isExecutable };

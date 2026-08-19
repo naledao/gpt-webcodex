@@ -201,10 +201,10 @@ class RuntimeOrchestrator {
       const env = await this.environment.inspect(settings, { forceProxy: true });
       if (!env.tunnelClient.installed) throw new Error('缺少 OpenAI tunnel-client 运行文件。');
       if (!env.python.installed) {
-        throw new Error('便携运行时尚未准备好，开发版需要 Python 3.11+；发行包将内置 Python。');
+        throw new Error('未检测到系统 Python 3.11+。请先安装 Python 3.11 或更高版本。');
       }
 
-      this.progress('proxy-detect', 14, '正在检测直连、Windows 系统代理和本地代理端口');
+      this.progress('proxy-detect', 14, '正在检测直连、代理环境变量和常见本地代理端口');
       const proxy = await resolveProxy(settings);
       if (settings.proxyMode === 'manual' && !proxy.reachable) {
         throw new Error(`手动代理不可用：${settings.proxyUrl}。请启动代理软件、修改端口，或切换到自动检测。`);
@@ -288,7 +288,9 @@ class RuntimeOrchestrator {
   async switchWorkspace(nextWorkspace) {
     if (this.busy) throw new Error('当前已有任务正在运行。');
     const previous = this.settingsStore.load();
-    const workspace = path.resolve(String(nextWorkspace || '').trim());
+    const rawWorkspace = String(nextWorkspace || '').trim();
+    if (!path.posix.isAbsolute(rawWorkspace)) throw new Error('工作目录必须是 Linux 绝对路径。');
+    const workspace = path.resolve(rawWorkspace);
     if (!workspace || !fs.existsSync(workspace) || !fs.statSync(workspace).isDirectory()) {
       throw new Error('请选择一个存在的工作目录。');
     }
@@ -347,8 +349,14 @@ class RuntimeOrchestrator {
   async updateAuthorizedRoots(roots) {
     if (this.busy) throw new Error('当前已有任务正在运行。');
     const previous = this.settingsStore.load();
-    const normalized = (Array.isArray(roots) ? roots : [])
-      .map((item) => path.resolve(String(item || '').trim()))
+    const requested = (Array.isArray(roots) ? roots : [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+    if (requested.some((item) => !path.posix.isAbsolute(item))) {
+      throw new Error('额外授权目录必须全部是 Linux 绝对路径。');
+    }
+    const normalized = requested
+      .map((item) => path.resolve(item))
       .filter((item) => item && fs.existsSync(item) && fs.statSync(item).isDirectory())
       .filter((item, index, all) => all.findIndex((other) => workspaceKey(other) === workspaceKey(item)) === index)
       .filter((item) => workspaceKey(item) !== workspaceKey(previous.workspace))

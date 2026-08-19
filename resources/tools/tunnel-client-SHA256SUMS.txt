@@ -1,0 +1,8 @@
+ca7e32e55cf1b82ca3605445d758113ea51efcdbde82b6a16d19cbae9d9742fc  tunnel-client-v0.0.10-all.zip
+1a48616e584484f8bef4c1128d515ac96cf44d0d9609c1462abccc1793f4b847  tunnel-client-v0.0.10-darwin-amd64.zip
+288accc7fd20cfee1d495adb933773af9e19ebc0cdef3173f7fb544afa5065b2  tunnel-client-v0.0.10-darwin-arm64.zip
+b9e0388a343f2d7adeff3992f411a0bd3d916a64bc56534aac5fd15ac1b20cd5  tunnel-client-v0.0.10-linux-amd64.zip
+b842a9b2352eebd80514cf01a1fbb1c0d400a7d24a4015e85a7ea5f1aeaa5b30  tunnel-client-v0.0.10-linux-arm64.zip
+5e64a056f1d96786da0a6f8db1da5f5f4a03fd19a90d951a25cf2ca8d9093d00  tunnel-client-v0.0.10-windows-amd64.zip
+08954ccda078abfeac9382f9b19d178ce0656cfe1e84f5941f0f8a5c4e91ea78  tunnel-client-v0.0.10-windows-arm64.zip
+1631819734006b6db29f022636fc649ed36c3f1c29e6e07a455e0812eebab45b  tunnel-client-v0.0.10-all.tar.gz

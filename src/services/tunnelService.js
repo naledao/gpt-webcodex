@@ -3,9 +3,8 @@ const { spawn } = require('node:child_process');
 const { tunnelExecutable, tunnelLogFile, stateFile } = require('../paths');
 const { readJson, updateJsonAtomic, ensureParent } = require('./jsonStore');
 const { rotateLog } = require('./logService');
-const { canConnect } = require('./environmentService');
-const { run } = require('./commandRunner');
-const { isAlive } = require('./nativeService');
+const { canConnect, isExecutable } = require('./environmentService');
+const { isAlive, terminateOwnedProcess } = require('./processService');
 
 class TunnelService {
   constructor(log) {
@@ -13,7 +12,8 @@ class TunnelService {
   }
 
   async start(settings, runtimeApiKey, token, progress) {
-    if (!fs.existsSync(tunnelExecutable())) throw new Error('安装包中缺少 tunnel-client.exe。');
+    const executable = tunnelExecutable();
+    if (!isExecutable(executable)) throw new Error(`缺少可执行的 Linux tunnel-client：${executable}`);
     if (!runtimeApiKey) throw new Error('请先保存 OpenAI Runtime API Key。');
     if (!settings.tunnelId) throw new Error('请先填写 OpenAI Tunnel ID。');
     await this.stop();
@@ -40,23 +40,33 @@ class TunnelService {
       ? settings.effectiveProxyUrl
       : settings.proxyUrl;
     if (proxyUrl) args.push('--control-plane.http-proxy', proxyUrl);
-    const child = spawn(tunnelExecutable(), args, {
+
+    const child = spawn(executable, args, {
       detached: false,
-      windowsHide: true,
       stdio: ['ignore', output, output],
       env
     });
+    try {
+      await new Promise((resolve, reject) => {
+        child.once('spawn', resolve);
+        child.once('error', reject);
+      });
+    } finally {
+      fs.closeSync(output);
+    }
     child.unref();
     updateJsonAtomic(stateFile(), (state) => ({
       ...state,
       tunnelPid: child.pid,
       tunnelStartedAt: new Date().toISOString()
     }));
+
     for (let index = 0; index < 30; index += 1) {
       if (await canConnect('127.0.0.1', settings.healthPort, 500)) {
         this.log.info('OpenAI Tunnel 已启动', { pid: child.pid, tunnelId: settings.tunnelId });
         return;
       }
+      if (!isAlive(child.pid)) throw new Error('Linux tunnel-client 进程已提前退出，请查看 Tunnel 日志。');
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     throw new Error(`Tunnel 已启动，但 ${settings.healthPort} 端口未通过就绪检查。请查看 Tunnel 日志。`);
@@ -64,10 +74,13 @@ class TunnelService {
 
   async stop() {
     const state = readJson(stateFile(), {});
-    if (!isAlive(state.tunnelPid)) return false;
-    await run('taskkill.exe', ['/PID', String(state.tunnelPid), '/T', '/F'], { allowFailure: true });
-    updateJsonAtomic(stateFile(), (value) => ({ ...value, tunnelPid: null }));
-    return true;
+    const alive = isAlive(state.tunnelPid);
+    try {
+      if (alive) await terminateOwnedProcess(state.tunnelPid);
+      return alive;
+    } finally {
+      updateJsonAtomic(stateFile(), (value) => ({ ...value, tunnelPid: null }));
+    }
   }
 
   async status(settings) {

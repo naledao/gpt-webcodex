@@ -9,9 +9,7 @@ body[data-theme="dark"]{
   --manager-main:#212121;
 }
 html,body{background:var(--manager-bg)!important}
-.manager-window-bar{top:0!important;left:0!important;right:0!important;height:42px!important;padding:0 10px 0 14px!important;border:0!important;border-bottom:1px solid #e7e7e7!important;border-radius:0!important;background:var(--manager-main)!important;box-shadow:none!important}
-body[data-theme="dark"] .manager-window-bar{border-color:#303030!important}
-.app-shell{inset:42px 0 0!important;border:0!important;border-radius:0!important;box-shadow:none!important;grid-template-columns:200px minmax(0,1fr)!important;background:var(--manager-main)!important}
+.app-shell{border:0!important;border-radius:0!important;box-shadow:none!important;grid-template-columns:200px minmax(0,1fr)!important;background:var(--manager-main)!important}
 .sidebar{padding:15px 10px 12px!important;background:var(--manager-sidebar)!important}
 .main-area{background:var(--manager-main)!important}
 .brand{gap:10px!important;padding:2px 8px 14px!important}

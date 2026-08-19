@@ -1,63 +1,15 @@
 {
   "name": "web-mcp-assistant",
   "version": "0.1.6",
-  "description": "一键部署与管理 Coding Tools MCP、OpenAI Tunnel 和 ChatGPT 接入的 Windows 桌面助手",
+  "description": "Linux Web 管理服务，用于运行 Coding Tools MCP 与 OpenAI Tunnel。",
   "author": "3169657175",
   "license": "MIT",
-  "main": "electron/main.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "icon:build": "node scripts/generate-icon.js",
-    "start": "electron .",
-    "test": "node --test tests/*.test.js && node scripts/check-source-root-clean.js",
-    "audit:prod": "npm audit --omit=dev",
-    "dist": "npm run icon:build && npm test && electron-builder --win nsis",
-    "dist:dir": "npm run icon:build && electron-builder --dir"
-  },
-  "dependencies": {
-    "electron-updater": "^6.8.9"
-  },
-  "devDependencies": {
-    "electron": "43.2.0",
-    "electron-builder": "^26.15.3"
-  },
-  "build": {
-    "electronDist": "node_modules/electron/dist",
-    "appId": "com.gptwebcodex.assistant",
-    "productName": "网页 MCP 助手",
-    "artifactName": "web-mcp-assistant-setup-${version}.${ext}",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "package.json",
-      "electron/**/*",
-      "renderer/**/*",
-      "LICENSE",
-      "THIRD_PARTY_NOTICES.md"
-    ],
-    "extraResources": [
-      {
-        "from": "resources",
-        "to": "resources"
-      }
-    ],
-    "win": {
-      "icon": "electron/app-icon.ico",
-      "target": [
-        "nsis"
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": "always",
-      "createStartMenuShortcut": true,
-      "shortcutName": "网页 MCP 助手",
-      "installerIcon": "electron/app-icon.ico",
-      "uninstallerIcon": "electron/app-icon.ico",
-      "installerHeaderIcon": "electron/app-icon.ico",
-      "runAfterFinish": true
-    }
+    "start": "node web/server.js",
+    "test": "node --test tests/*.test.js",
+    "check": "node --check web/server.js && node --check renderer/web-api.js && node --check renderer/app.js"
   }
 }

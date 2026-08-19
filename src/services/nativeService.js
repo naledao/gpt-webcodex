@@ -6,16 +6,12 @@ const { pythonStatus } = require('./environmentService');
 const { stateFile, mcpLogFile, resourcesRoot } = require('../paths');
 const { readJson, updateJsonAtomic, ensureParent } = require('./jsonStore');
 const { rotateLog } = require('./logService');
-
-function isAlive(pid) {
-  if (!Number.isInteger(pid)) return false;
-  try { process.kill(pid, 0); return true; } catch { return false; }
-}
+const { isAlive, terminateOwnedProcess } = require('./processService');
 
 function runtimeFingerprint(settings) {
   return crypto.createHash('sha256').update(JSON.stringify({
-    workspace: path.resolve(String(settings.workspace || '')).toLowerCase(),
-    authorizedRoots: (settings.authorizedRoots || []).map((item) => path.resolve(String(item)).toLowerCase()).sort(),
+    workspace: path.resolve(String(settings.workspace || '')),
+    authorizedRoots: (settings.authorizedRoots || []).map((item) => path.resolve(String(item))).sort(),
     port: Number(settings.mcpPort),
     permissionMode: settings.permissionMode || 'safe',
     toolMode: 'smart'
@@ -26,7 +22,7 @@ function currentRuntimeState(input = {}) {
   const allowed = new Set([
     'manualStop', 'tunnelPid', 'tunnelStartedAt',
     'nativePid', 'nativeFingerprint', 'nativeWorkspace', 'nativePort',
-    'nativePermissionMode', 'nativeToolMode', 'nativeCommand', 'startedAt'
+    'nativePermissionMode', 'nativeToolMode', 'nativeCommand', 'nativeInstanceId', 'startedAt'
   ]);
   return Object.fromEntries(Object.entries(input).filter(([key]) => allowed.has(key)));
 }
@@ -38,21 +34,20 @@ class NativeService {
 
   async start(settings, token, progress) {
     const python = await pythonStatus();
-    if (!python.installed) {
-      throw new Error('未找到 Python 3.11+。正式安装包可内置便携 Python；开发版请先安装 Python 3.11+。');
-    }
+    if (!python.installed) throw new Error('未找到 Python 3.11+。请先在 Linux 系统中安装 Python 3.11 或更高版本。');
+
     const current = readJson(stateFile(), {});
     const fingerprint = runtimeFingerprint(settings);
     if (isAlive(current.nativePid) && current.nativeFingerprint === fingerprint) {
-      this.log.info('便携 MCP 已在目标工作目录运行', { pid: current.nativePid, workspace: settings.workspace });
+      this.log.info('Coding Tools MCP 已在目标工作目录运行', { pid: current.nativePid, workspace: settings.workspace });
       return { reused: true, pid: current.nativePid };
     }
     if (isAlive(current.nativePid)) {
-      this.log.info('检测到便携 MCP 配置已变化，正在静默重建', { from: current.nativeWorkspace || '', to: settings.workspace });
+      this.log.info('检测到 MCP 配置已变化，正在重建', { from: current.nativeWorkspace || '', to: settings.workspace });
       await this.stop();
     }
 
-    progress('native-start', 45, `正在使用 ${python.version} 静默启动便携运行时`);
+    progress('native-start', 45, `正在使用 ${python.version} 启动 Coding Tools MCP`);
     ensureParent(mcpLogFile());
     rotateLog(mcpLogFile());
     const output = fs.openSync(mcpLogFile(), 'a');
@@ -70,26 +65,26 @@ class NativeService {
     env.PATH = [bundledTools, process.env.PATH || ''].filter(Boolean).join(path.delimiter);
     env.PYTHONPATH = [vendoredPython, path.join(resourcesRoot(), 'coding-tools-mcp'), process.env.PYTHONPATH || ''].filter(Boolean).join(path.delimiter);
     const args = [
-      ...python.prefixArgs,
       '-m', 'coding_tools_mcp',
       '--workspace', settings.workspace,
       '--host', '127.0.0.1',
       '--port', String(settings.mcpPort),
       '--permission-mode', settings.permissionMode
     ];
-    const command = python.launchCommand || python.command;
-    const child = spawn(command, args, {
+    const child = spawn(python.command, args, {
       detached: false,
-      windowsHide: true,
       stdio: ['ignore', output, output],
       env
     });
-    await new Promise((resolve, reject) => {
-      child.once('spawn', resolve);
-      child.once('error', reject);
-    });
+    try {
+      await new Promise((resolve, reject) => {
+        child.once('spawn', resolve);
+        child.once('error', reject);
+      });
+    } finally {
+      fs.closeSync(output);
+    }
     child.unref();
-    fs.closeSync(output);
     updateJsonAtomic(stateFile(), (value) => ({
       ...currentRuntimeState(value),
       nativePid: child.pid,
@@ -98,11 +93,11 @@ class NativeService {
       nativePort: Number(settings.mcpPort),
       nativePermissionMode: settings.permissionMode,
       nativeToolMode: 'smart',
-      nativeCommand: command,
+      nativeCommand: python.command,
       startedAt: new Date().toISOString(),
       nativeInstanceId: crypto.randomBytes(12).toString('hex')
     }));
-    this.log.info('便携 MCP 运行时已启动', { pid: child.pid, workspace: settings.workspace, command });
+    this.log.info('Coding Tools MCP 已启动', { pid: child.pid, workspace: settings.workspace, command: python.command });
     return { reused: false, pid: child.pid };
   }
 
@@ -110,10 +105,7 @@ class NativeService {
     const state = readJson(stateFile(), {});
     const alive = isAlive(state.nativePid);
     try {
-      if (alive) {
-        const { run } = require('./commandRunner');
-        await run('taskkill.exe', ['/PID', String(state.nativePid), '/T', '/F'], { allowFailure: true });
-      }
+      if (alive) await terminateOwnedProcess(state.nativePid);
       return alive;
     } finally {
       updateJsonAtomic(stateFile(), (value) => ({

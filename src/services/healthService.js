@@ -33,9 +33,9 @@ class HealthService {
     const tunnelConflict = env.ports.tunnelListening && !owned.tunnelOwned;
     const checks = [
       { id: 'workspace', label: '工作目录', ok: env.workspace.exists, repair: 'choose-workspace', detail: current.workspace || '尚未选择' },
-      { id: 'runtime', label: '便携 Python', ok: env.python.installed, repair: 'runtime', detail: env.python.version || '便携 Python 不可用' },
-      { id: 'tunnel-client', label: 'Tunnel 客户端', ok: env.tunnelClient.installed, repair: '', detail: env.tunnelClient.installed ? '文件完整' : '安装文件缺失，需要重新安装助手' },
-      { id: 'runtime-key', label: 'Runtime API Key', ok: secretState.runtimeApiKey, repair: 'runtime-key', detail: secretState.runtimeApiKey ? '已安全保存' : '尚未填写' },
+      { id: 'runtime', label: 'Python 3.11+', ok: env.python.installed, repair: '', detail: env.python.version || '未检测到 python3/python 3.11+' },
+      { id: 'tunnel-client', label: 'Linux Tunnel 客户端', ok: env.tunnelClient.installed, repair: '', detail: env.tunnelClient.installed ? '可执行文件完整' : `缺少 ${env.tunnelClient.path}` },
+      { id: 'runtime-key', label: 'Runtime API Key', ok: secretState.runtimeApiKey, repair: 'runtime-key', detail: secretState.runtimeApiKey ? '已保存在本机配置目录' : '尚未填写' },
       { id: 'tunnel-id', label: 'Tunnel ID', ok: Boolean(current.tunnelId), repair: 'tunnel-id', detail: current.tunnelId || '尚未填写' },
       { id: 'mcp-port', label: 'MCP 本地端口', ok: !mcpConflict, repair: 'port', detail: mcpConflict ? `${current.mcpPort} 被非本助手进程占用` : `${current.mcpPort} 可用或由本助手管理` },
       { id: 'tunnel-port', label: 'Tunnel 控制台端口', ok: !tunnelConflict, repair: 'port', detail: tunnelConflict ? `${current.healthPort} 被非本助手进程占用` : `${current.healthPort} 可用或由本助手管理` },
@@ -64,11 +64,11 @@ class HealthService {
       actions.push('已生成 MCP 本地认证 Token');
     }
     if (Object.keys(patch).length) current = this.settings.save(patch);
-    if (!current.workspace) unresolved.push('选择工作目录');
+    if (!current.workspace) unresolved.push('填写 Linux 工作目录');
     if (!this.secrets.status().runtimeApiKey) unresolved.push('填写 Runtime API Key');
     if (!current.tunnelId) unresolved.push('填写 Tunnel ID');
-    if (!before.environment.tunnelClient.installed) unresolved.push('重新安装助手以恢复 Tunnel 客户端');
-    if (!before.environment.python.installed) unresolved.push('修复便携 Python');
+    if (!before.environment.tunnelClient.installed) unresolved.push('提供可执行的 Linux tunnel-client');
+    if (!before.environment.python.installed) unresolved.push('安装 Python 3.11+');
     if (!unresolved.length) {
       await this.orchestrator.restart();
       actions.push('已重新启动 MCP 与 Tunnel');
