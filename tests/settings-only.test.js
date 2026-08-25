@@ -40,6 +40,8 @@ test('management UI has no embedded ChatGPT session controls', () => {
   const preload = read('electron/preload.js');
   assert.match(html, /外部浏览器/);
   assert.match(html, /id="authorizedRootsList"/);
+  assert.match(html, /id="globalAgentsToggle"/);
   assert.match(app, /updateAuthorizedRoots/);
+  assert.match(app, /globalAgentsEnabled/);
   assert.doesNotMatch(`${html}\n${app}\n${preload}`, /clearChatSession|ChatGPT 登录数据|内联网页/);
 });

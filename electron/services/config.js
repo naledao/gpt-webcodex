@@ -1,8 +1,9 @@
 ﻿const path = require('node:path');
 
 const DEFAULTS = Object.freeze({
-  configVersion: 5,
+  configVersion: 6,
   workspace: '',
+  globalAgentsEnabled: false,
   permissionMode: 'safe',
   toolMode: 'smart',
   mcpPort: 18765,
@@ -57,7 +58,8 @@ function normalize(input = {}) {
   for (const key of Object.keys(DEFAULTS)) {
     if (Object.hasOwn(input, key)) merged[key] = input[key];
   }
-  merged.configVersion = 5;
+  merged.configVersion = 6;
+  merged.globalAgentsEnabled = merged.globalAgentsEnabled === true;
   merged.permissionMode = ['safe', 'trusted'].includes(merged.permissionMode) ? merged.permissionMode : 'safe';
   merged.toolMode = 'smart';
   merged.proxyMode = ['auto', 'system', 'manual', 'direct'].includes(merged.proxyMode) ? merged.proxyMode : 'auto';

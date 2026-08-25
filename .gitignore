@@ -12,6 +12,8 @@ out/
 *.log
 *.tmp
 *.bak
+__pycache__/
+*.pyc
 resources/native-python/
 resources/*.zip
 .DS_Store

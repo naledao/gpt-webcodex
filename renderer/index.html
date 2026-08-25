@@ -127,7 +127,7 @@
         </section>
 
         <section class="page" data-page-view="workspace">
-          <div class="section-header"><div><span class="section-kicker">WORKSPACE BOUNDARY</span><h2>工作目录与权限</h2><p>这是整个 MCP 最重要的安全边界：网页只能看到你明确选择的目录。</p></div></div>
+          <div class="section-header"><div><span class="section-kicker">WORKSPACE BOUNDARY</span><h2>工作目录与权限</h2><p>网页只能访问明确授权的项目目录；启用全局规则后，仅额外只读加载指定的 AGENTS.md。</p></div></div>
           <article class="panel workspace-picker">
             <div class="folder-illustration">▱</div>
             <div class="folder-copy"><span>当前允许访问</span><h3 id="selectedWorkspace">尚未选择目录</h3><p>切换目录后，助手会在后台静默重启本地 MCP 并更新访问边界。</p></div>
@@ -137,6 +137,13 @@
           <article class="panel authorized-roots-panel">
             <div class="panel-title"><div><h3>额外授权目录</h3><p>无需切换主工作区。添加后，ChatGPT 可以直接读取和修改这些目录中的绝对路径；未授权目录仍会被拒绝。</p></div><button class="secondary-button" id="addAuthorizedRoot">添加授权目录</button></div>
             <div class="authorized-root-list" id="authorizedRootsList"><span class="task-muted">尚未添加额外授权目录</span></div>
+          </article>
+
+          <article class="panel settings-list global-agents-panel">
+            <div class="panel-title"><div><h3>全局 AGENTS.md</h3><p>为所有项目提供通用规则，项目目录中的规则排在后面并具有更高优先级。</p></div></div>
+            <label class="setting-row"><span><b>注入全局规则</b><small>开启后，规则内容会随 MCP 指令发送到 ChatGPT；需要重新部署后生效。</small></span><input id="globalAgentsToggle" class="toggle" type="checkbox"></label>
+            <div class="global-agents-details"><span id="globalAgentsStatus">当前未启用</span><code id="globalAgentsPath">正在解析全局规则路径…</code></div>
+            <div class="notice warning"><b>受控的只读例外</b><p>助手只会尝试读取该目录中的 AGENTS.override.md 或 AGENTS.md，不会因此开放整个用户目录。</p></div>
           </article>
 
           <div class="two-column">

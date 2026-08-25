@@ -200,6 +200,11 @@ body[data-theme="light"] .node { background: rgba(255,255,255,.8); }
 .authorized-root-row { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
 .authorized-root-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 .authorized-root-row button { flex: 0 0 auto; }
+.global-agents-panel { margin-bottom: 14px; }
+.global-agents-details { display: grid; gap: 7px; padding: 12px 18px 0; }
+.global-agents-details span { color: var(--muted); font-size: 10px; font-weight: 700; }
+.global-agents-details code { overflow-wrap: anywhere; color: var(--text); font-size: 10px; }
+.global-agents-panel .notice { margin: 12px 18px 18px; }
 .choice-stack { display: grid; gap: 8px; }
 .choice { display: flex; align-items: center; gap: 12px; padding: 13px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); cursor: pointer; }
 .choice.selected { border-color: rgba(108,140,255,.5); background: rgba(108,140,255,.08); }

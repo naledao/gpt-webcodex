@@ -3,6 +3,7 @@ const net = require('node:net');
 const { run } = require('./commandRunner');
 const paths = require('../paths');
 const { resolveProxy } = require('./proxyService');
+const { inspectGlobalAgents } = require('./globalAgentsService');
 
 async function commandExists(name) {
   const result = await run('where.exe', [name], { allowFailure: true });
@@ -65,6 +66,7 @@ class EnvironmentService {
       },
       tunnelClient: { installed: fs.existsSync(paths.tunnelExecutable()), path: paths.tunnelExecutable() },
       workspace: { configured: Boolean(settings.workspace), exists: Boolean(settings.workspace && fs.existsSync(settings.workspace)) },
+      globalAgents: inspectGlobalAgents(settings),
       ports: { mcpListening, tunnelListening },
       nativePortableReady: fs.existsSync(paths.portablePython())
     };

@@ -19,9 +19,15 @@ test('unknown legacy settings are removed from normalized settings', () => {
 });
 
 test('trusted values are preserved', () => {
-  const result = normalize({ permissionMode: 'trusted', mcpPort: '9000' });
+  const result = normalize({ permissionMode: 'trusted', globalAgentsEnabled: true, mcpPort: '9000' });
   assert.equal(result.permissionMode, 'trusted');
+  assert.equal(result.globalAgentsEnabled, true);
   assert.equal(result.mcpPort, 9000);
+});
+
+test('global AGENTS injection remains opt in for existing installations', () => {
+  assert.equal(normalize({ configVersion: 5 }).globalAgentsEnabled, false);
+  assert.equal(normalize({ globalAgentsEnabled: 'yes' }).globalAgentsEnabled, false);
 });
 
 test('runtime ports cannot overlap', () => {

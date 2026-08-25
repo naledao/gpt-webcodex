@@ -4,7 +4,7 @@ function createPreviewApi() {
   const previewSettings = {
     workspace: 'C:\\Users\\示例用户\\Desktop\\my-project', permissionMode: 'safe', toolMode: 'smart',
     mcpPort: 18765, healthPort: 18081, proxyMode: 'auto', proxyUrl: '', tunnelId: 'tunnel_demo',
-    theme: 'light', startWithWindows: false, progressReportSeconds: 90, keepRunningOnClose: true, autoStartServices: false, firstRunCompleted: true, guideProgress: {}, authorizedRoots: []
+    theme: 'light', startWithWindows: false, progressReportSeconds: 90, keepRunningOnClose: true, autoStartServices: false, globalAgentsEnabled: false, firstRunCompleted: true, guideProgress: {}, authorizedRoots: []
   };
   const snapshot = {
     settings: previewSettings,
@@ -12,7 +12,7 @@ function createPreviewApi() {
     environment: {
       python: { installed: true, version: 'Python 3.12.10' },
       proxy: { mode: 'auto', configured: false, reachable: true, source: 'auto-direct', url: '' }, tunnelClient: { installed: true },
-      workspace: { configured: true, exists: true }, ports: { mcpListening: true, tunnelListening: true }
+      workspace: { configured: true, exists: true }, globalAgents: { enabled: false, codexHome: 'C:\\Users\\示例用户\\.codex', path: 'C:\\Users\\示例用户\\.codex\\AGENTS.md', exists: false, source: '' }, ports: { mcpListening: true, tunnelListening: true }
     },
     status: { busy: false, runtimeRunning: true, tunnelRunning: true, fullyReady: true, localMcpUrl: 'http://127.0.0.1:18765/mcp', tunnelUiUrl: 'http://127.0.0.1:18081/ui' }
   };
@@ -227,6 +227,7 @@ function applyFormValues(snapshot, force = false) {
   $('#startWithWindowsToggle').checked = Boolean(settings.startWithWindows);
   $('#keepRunningToggle').checked = settings.keepRunningOnClose;
   $('#autoStartToggle').checked = settings.autoStartServices;
+  $('#globalAgentsToggle').checked = Boolean(settings.globalAgentsEnabled);
   $('#progressReportSelect').value = String(settings.progressReportSeconds || 90);
   if ($('#toolModeSelect')) $('#toolModeSelect').value = 'smart';
   $$('input[name="permission"]').forEach((input) => {
@@ -267,11 +268,12 @@ function renderSnapshot(snapshot, options = {}) {
   setDot($('#workspaceDot'), environment.workspace.exists ? 'ready' : 'error');
   $('#selectedWorkspace').textContent = settings.workspace || '尚未选择目录';
   renderAuthorizedRoots(settings.authorizedRoots || []);
+  renderGlobalAgents(settings, environment.globalAgents);
 
   $('#heroBadge').textContent = ready ? '全部服务运行正常' : '尚未完成部署';
   $('#heroTitle').textContent = ready ? '网页编程工作区已经准备好' : '让网页聊天安全访问你的代码目录';
   $('#heroText').textContent = ready
-    ? '当前通过内置便携运行时运行，网页只可访问所选工作目录。'
+    ? `当前通过内置便携运行时运行，网页可访问已授权目录${settings.globalAgentsEnabled ? '并只读加载全局 AGENTS.md' : ''}。`
     : '选择一个工作目录，配置 OpenAI Tunnel，然后由助手完成 MCP 的启动、鉴权、健康检查和故障诊断。';
   $('#heroStartButton').textContent = ready ? '重新部署' : '开始部署';
   $('#topStartButton').textContent = ready ? '重新部署' : '一键启动';
@@ -310,6 +312,18 @@ function renderAuthorizedRoots(roots) {
     row.append(code, remove);
     container.appendChild(row);
   });
+}
+
+function renderGlobalAgents(settings, info = {}) {
+  const enabled = Boolean(settings.globalAgentsEnabled);
+  const path = textOr(info.path, '未能解析全局 AGENTS.md 路径');
+  $('#globalAgentsPath').textContent = path;
+  $('#globalAgentsPath').title = path;
+  $('#globalAgentsStatus').textContent = enabled
+    ? info.enabled === false
+      ? '待保存并重新部署 · 届时检查全局规则文件'
+      : info.exists ? `已启用 · 将读取 ${info.source || 'AGENTS.md'}` : '已启用 · 当前没有可注入的非空规则文件'
+    : '当前未启用 · 不会读取或发送全局规则';
 }
 
 async function addAuthorizedRoot() {
@@ -393,6 +407,7 @@ function collectSettings() {
     startWithWindows: $('#startWithWindowsToggle').checked,
     keepRunningOnClose: $('#keepRunningToggle').checked,
     autoStartServices: $('#autoStartToggle').checked,
+    globalAgentsEnabled: $('#globalAgentsToggle').checked,
     progressReportSeconds: Number($('#progressReportSelect').value || 90),
     guideProgress: collectGuideProgress()
   };
@@ -655,6 +670,12 @@ function bindEvents() {
   $('#deployNow').addEventListener('click', deployNow);
   $('#chooseWorkspace').addEventListener('click', chooseWorkspace);
   $('#addAuthorizedRoot').addEventListener('click', addAuthorizedRoot);
+  $('#globalAgentsToggle').addEventListener('change', () => {
+    renderGlobalAgents(
+      { globalAgentsEnabled: $('#globalAgentsToggle').checked },
+      state.snapshot?.environment?.globalAgents || {}
+    );
+  });
   $('#saveDeploySettings').addEventListener('click', async () => {
     try { await saveKeyIfPresent(); await saveSettings(); await refreshSnapshot({ forceForms: true }); }
     catch (error) { toast('保存失败', error.message, 'error'); }

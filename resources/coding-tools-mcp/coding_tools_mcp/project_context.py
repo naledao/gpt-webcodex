@@ -5,8 +5,11 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .envutils import ENV_PREFIX, truthy_env
+
 
 CONTEXT_FILE_NAMES = frozenset({"AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"})
+GLOBAL_CONTEXT_FILE_NAMES = ("AGENTS.override.md", "AGENTS.md")
 SKIPPED_CONTEXT_DIRS = frozenset(
     {
         ".git",
@@ -28,6 +31,7 @@ SKIPPED_CONTEXT_DIRS = frozenset(
 )
 MAX_ROOT_CONTEXT_BYTES = 32 * 1024
 MAX_CONTEXT_FILE_BYTES = 16 * 1024
+MAX_GLOBAL_CONTEXT_BYTES = 16 * 1024
 MAX_NESTED_CONTEXT_FILES = 64
 MAX_CONTEXT_SCAN_FILES = 20_000
 
@@ -52,6 +56,7 @@ class ProjectContext:
     root_files: tuple[LoadedContextFile, ...]
     nested_files: tuple[str, ...]
     warnings: tuple[str, ...]
+    global_files: tuple[LoadedContextFile, ...] = ()
 
     def server_instructions(self) -> str:
         sections = [
@@ -66,6 +71,12 @@ class ProjectContext:
             "Use task_control to start, pause, stop, resume, clear, inspect persisted task state, or poll a background operation returned by a long workflow.",
             "Before claiming a build is ready, use agent_workflow with build_release and full verification so artifacts, versions, hashes, and the final report are checked consistently.",
         ]
+        for item in self.global_files:
+            suffix = " [truncated]" if item.truncated else ""
+            sections.append(
+                f"Global instructions from {item.path}{suffix} (project instructions below take precedence):\n"
+                f"{item.content}"
+            )
         for item in self.root_files:
             suffix = " [truncated]" if item.truncated else ""
             sections.append(f"Project instructions from {item.path}{suffix}:\n{item.content}")
@@ -80,11 +91,20 @@ class ProjectContext:
         return "\n\n".join(sections)
 
 
-def load_project_context(root: Path) -> ProjectContext:
+def load_project_context(
+    root: Path,
+    *,
+    include_global: bool | None = None,
+    codex_home: Path | None = None,
+) -> ProjectContext:
     resolved_root = root.expanduser().resolve(strict=True)
     loaded: list[LoadedContextFile] = []
     warnings: list[str] = []
-    remaining = MAX_ROOT_CONTEXT_BYTES
+    if include_global is None:
+        include_global = truthy_env(os.environ.get(f"{ENV_PREFIX}_GLOBAL_AGENTS"))
+    global_files = _load_global_context(codex_home, warnings) if include_global else ()
+    global_bytes = sum(len(item.content.encode("utf-8")) for item in global_files)
+    remaining = max(0, MAX_ROOT_CONTEXT_BYTES - global_bytes)
     for name in sorted(CONTEXT_FILE_NAMES):
         path = resolved_root / name
         if not path.is_file():
@@ -118,7 +138,55 @@ def load_project_context(root: Path) -> ProjectContext:
     if len(nested) > MAX_NESTED_CONTEXT_FILES:
         nested = nested[:MAX_NESTED_CONTEXT_FILES]
         warnings.append(f"Nested instruction list truncated to {MAX_NESTED_CONTEXT_FILES} files.")
-    return ProjectContext(tuple(loaded), tuple(nested), tuple(warnings))
+    return ProjectContext(tuple(loaded), tuple(nested), tuple(warnings), global_files)
+
+
+def _load_global_context(
+    codex_home: Path | None,
+    warnings: list[str],
+) -> tuple[LoadedContextFile, ...]:
+    configured_home = (os.environ.get("CODEX_HOME") or "").strip()
+    home_candidate = codex_home or (Path(configured_home) if configured_home else Path.home() / ".codex")
+    try:
+        resolved_home = home_candidate.expanduser().resolve(strict=True)
+    except OSError as exc:
+        if codex_home is not None or configured_home:
+            warnings.append(f"Could not access Codex home for global instructions: {exc}")
+        return ()
+    if not resolved_home.is_dir():
+        warnings.append(f"Codex home is not a directory: {resolved_home}")
+        return ()
+
+    for name in GLOBAL_CONTEXT_FILE_NAMES:
+        path = resolved_home / name
+        if not path.is_file():
+            continue
+        try:
+            resolved = path.resolve(strict=True)
+            resolved.relative_to(resolved_home)
+        except (OSError, ValueError):
+            warnings.append(f"Skipped unsafe global instruction path: {path}")
+            continue
+        try:
+            with resolved.open("rb") as handle:
+                data = handle.read(MAX_GLOBAL_CONTEXT_BYTES + 1)
+            content = _decode_utf8_prefix(data[:MAX_GLOBAL_CONTEXT_BYTES])
+        except UnicodeDecodeError:
+            warnings.append(f"Skipped non-UTF-8 global instruction file: {resolved}")
+            continue
+        except OSError as exc:
+            warnings.append(f"Could not read global instruction file {resolved}: {exc}")
+            continue
+        if not content.strip():
+            continue
+        return (
+            LoadedContextFile(
+                str(resolved),
+                content,
+                len(data) > MAX_GLOBAL_CONTEXT_BYTES,
+            ),
+        )
+    return ()
 
 
 def _discover_context_files(root: Path, warnings: list[str]) -> list[str]:

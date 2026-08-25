@@ -1725,6 +1725,7 @@ class Runtime:
             "shell_env_exclude": list(self.shell_env_policy.exclude),
             "endpoint_path": MCP_ENDPOINT_PATH,
             "project_context": {
+                "global_instruction_files": [item.path for item in self.project_context.global_files],
                 "root_instruction_files": [item.path for item in self.project_context.root_files],
                 "nested_instruction_files": list(self.project_context.nested_files),
                 "warnings": list(self.project_context.warnings),
@@ -2104,6 +2105,10 @@ class Runtime:
 
         workspace = self.workspace_context({"path": str(args.get("path", ".")), "max_entries": int(args.get("max_entries", 120))})
         instructions = {
+            "global": [
+                {"path": item.path, "content": item.content, "truncated": item.truncated}
+                for item in self.project_context.global_files
+            ],
             "root": [
                 {"path": item.path, "content": item.content, "truncated": item.truncated}
                 for item in self.project_context.root_files

@@ -15,6 +15,7 @@ function isAlive(pid) {
 function runtimeFingerprint(settings) {
   return crypto.createHash('sha256').update(JSON.stringify({
     workspace: path.resolve(String(settings.workspace || '')).toLowerCase(),
+    globalAgentsEnabled: Boolean(settings.globalAgentsEnabled),
     authorizedRoots: (settings.authorizedRoots || []).map((item) => path.resolve(String(item)).toLowerCase()).sort(),
     port: Number(settings.mcpPort),
     permissionMode: settings.permissionMode || 'safe',
@@ -62,6 +63,7 @@ class NativeService {
       CODING_TOOLS_MCP_AUTH_TOKEN: token,
       CODING_TOOLS_MCP_TELEMETRY: 'off',
       CODING_TOOLS_MCP_TOOL_MODE: 'smart',
+      CODING_TOOLS_MCP_GLOBAL_AGENTS: settings.globalAgentsEnabled ? '1' : '0',
       CODING_TOOLS_MCP_AUTHORIZED_ROOTS: JSON.stringify(settings.authorizedRoots || []),
       CODING_TOOLS_MCP_LONG_TOOL_HANDOFF_SECONDS: String(settings.progressReportSeconds || 90)
     };

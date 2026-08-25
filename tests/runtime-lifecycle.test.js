@@ -9,6 +9,7 @@ test('native runtime identity changes with workspace and port while tool mode st
   assert.notEqual(runtimeFingerprint(base), runtimeFingerprint({ ...base, workspace: 'C:\\work\\two' }));
   assert.notEqual(runtimeFingerprint(base), runtimeFingerprint({ ...base, mcpPort: 18766 }));
   assert.notEqual(runtimeFingerprint(base), runtimeFingerprint({ ...base, authorizedRoots: ['D:\\shared'] }));
+  assert.notEqual(runtimeFingerprint(base), runtimeFingerprint({ ...base, globalAgentsEnabled: true }));
   assert.equal(runtimeFingerprint(base), runtimeFingerprint({ ...base, toolMode: 'readonly' }));
 });
 
