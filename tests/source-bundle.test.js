@@ -19,6 +19,7 @@ function collectFiles(directory) {
 test('runtime source is pure Linux Web and Electron assets are absent', () => {
   assert.equal(fs.existsSync(path.join(root, 'electron')), false);
   assert.equal(fs.existsSync(path.join(root, 'scripts', 'build-native.mjs')), true);
+  assert.equal(fs.existsSync(path.join(root, 'scripts', 'build-native-arm64-wsl.mjs')), true);
   assert.equal(fs.existsSync(path.join(root, 'native', 'entry.js')), true);
   for (const file of ['browser.html', 'browser.js', 'browser.css']) {
     assert.equal(fs.existsSync(path.join(root, 'renderer', file)), false);
@@ -50,6 +51,7 @@ test('package scripts start the Web server and have no Electron dependencies', (
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.equal(pkg.scripts.start, 'node web/server.js');
   assert.equal(pkg.scripts['build:native'], 'node scripts/build-native.mjs');
+  assert.equal(pkg.scripts['build:native:arm64'], 'node scripts/build-native-arm64-wsl.mjs');
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.js');
   assert.equal(pkg.main, undefined);
   assert.equal(pkg.build, undefined);
@@ -62,10 +64,15 @@ test('package scripts start the Web server and have no Electron dependencies', (
 test('native build embeds runtime assets and uses Node SEA', () => {
   const entry = fs.readFileSync(path.join(root, 'native', 'entry.js'), 'utf8');
   const buildScript = fs.readFileSync(path.join(root, 'scripts', 'build-native.mjs'), 'utf8');
+  const arm64BuildScript = fs.readFileSync(path.join(root, 'scripts', 'build-native-arm64-wsl.mjs'), 'utf8');
   assert.match(entry, /getAssetKeys/);
   assert.match(entry, /WEB_MCP_RESOURCES_ROOT/);
   assert.match(buildScript, /--experimental-sea-config/);
   assert.match(buildScript, /NODE_SEA_BLOB/);
+  assert.match(buildScript, /NATIVE_QEMU/);
+  assert.match(arm64BuildScript, /qemu-aarch64-static/);
+  assert.match(arm64BuildScript, /node-v.*-linux-arm64/);
+  assert.match(arm64BuildScript, /Expected an ELF64 AArch64 executable/);
 });
 
 test('Web API surface and LAN binding are declared', () => {
@@ -78,12 +85,25 @@ test('Web API surface and LAN binding are declared', () => {
     '/api/secrets/runtime-key', '/api/secrets/mcp-token/regenerate',
     '/api/runtime/start', '/api/runtime/stop', '/api/runtime/restart',
     '/api/logs', '/api/task-state', '/api/task-history',
-    '/api/build', '/api/build/run', '/api/health', '/api/health/repair', '/api/events'
+    '/api/build', '/api/build/run', '/api/health', '/api/health/repair',
+    '/api/update/status', '/api/update/check', '/api/update/download', '/api/update/apply', '/api/events'
   ]) assert.ok(server.includes(endpoint), endpoint);
   for (const file of ['login.html', 'login.css', 'login.js']) {
     assert.equal(fs.existsSync(path.join(root, 'renderer', file)), true, file);
   }
-  for (const event of ['runtime:progress', 'runtime:status', 'runtime:heartbeat', 'logs:entry', 'build:progress']) {
+  for (const event of ['runtime:progress', 'runtime:status', 'runtime:heartbeat', 'logs:entry', 'build:progress', 'update:progress']) {
     assert.ok(`${server}\n${api}`.includes(event), event);
   }
+});
+
+test('native release exposes verified self-update and controller update paths', () => {
+  const updater = fs.readFileSync(path.join(root, 'src', 'services', 'updateService.js'), 'utf8');
+  const entry = fs.readFileSync(path.join(root, 'native', 'entry.js'), 'utf8');
+  const control = fs.readFileSync(path.join(root, 'scripts', 'web-mcp-assistantctl'), 'utf8');
+  for (const marker of ['SHA-256', 'validateElf', 'web-mcp-assistant-linux-x64', 'web-mcp-assistant-linux-arm64']) {
+    assert.ok(updater.includes(marker), marker);
+  }
+  assert.match(entry, /--self-update/);
+  assert.match(entry, /--web-mcp-update-restart-helper/);
+  assert.match(control, /update_service/);
 });

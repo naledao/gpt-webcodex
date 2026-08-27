@@ -11,6 +11,7 @@ const { EnvironmentService } = require('../src/services/environmentService');
 const { RuntimeOrchestrator } = require('../src/services/runtimeOrchestrator');
 const { BuildVerificationService } = require('../src/services/buildVerificationService');
 const { HealthService } = require('../src/services/healthService');
+const { UpdateService } = require('../src/services/updateService');
 const { resolveProxy, clearProxyCache } = require('../src/services/proxyService');
 const { normalize, validateRuntimeSettings } = require('../src/services/config');
 const { readJson, writeJsonAtomic } = require('../src/services/jsonStore');
@@ -232,7 +233,21 @@ function createApplication(options = {}) {
   });
   const buildVerification = new BuildVerificationService(log, (payload) => broadcast('build:progress', payload));
   const healthService = new HealthService({ settings, secrets, environment, orchestrator });
+  const updateService = options.updateService || new UpdateService({
+    settingsStore: settings,
+    log,
+    emitProgress: (payload) => broadcast('update:progress', payload)
+  });
+  let updateBusy = false;
+  let updateShutdown = async () => {};
   log.on('entry', (payload) => broadcast('logs:entry', payload));
+
+  async function runUpdate(action) {
+    if (updateBusy) throw new Error('已有更新操作正在进行，请等待完成。');
+    updateBusy = true;
+    try { return await action(); }
+    finally { updateBusy = false; }
+  }
 
   function cleanupSessions() {
     const now = Date.now();
@@ -340,6 +355,17 @@ function createApplication(options = {}) {
     if (method === 'GET' && pathname === '/api/health') return sendSuccess(response, await healthService.inspect());
     if (method === 'POST' && pathname === '/api/health/repair') return sendSuccess(response, await healthService.repair());
     if (method === 'POST' && pathname === '/api/proxy/detect') return sendSuccess(response, await resolveProxy(settings.load(), { force: true }));
+    if (method === 'GET' && pathname === '/api/update/status') return sendSuccess(response, await updateService.status());
+    if (method === 'POST' && pathname === '/api/update/check') return sendSuccess(response, await runUpdate(() => updateService.check({ force: true })));
+    if (method === 'POST' && pathname === '/api/update/download') return sendSuccess(response, await runUpdate(() => updateService.download()));
+    if (method === 'POST' && pathname === '/api/update/apply') {
+      const result = await runUpdate(() => updateService.install({ restart: true }));
+      sendSuccess(response, result);
+      setTimeout(() => updateShutdown().catch((error) => {
+        log.error('更新已安装，但旧版 Web 服务退出失败', { message: safeMessage(error) });
+      }), 250);
+      return;
+    }
     return sendFailure(response, '接口不存在。', 404);
   }
 
@@ -402,12 +428,25 @@ function createApplication(options = {}) {
     }
   });
 
-  return { server, settings, secrets, log, environment, orchestrator, buildVerification, healthService, sseClients, broadcast };
+  return {
+    server,
+    settings,
+    secrets,
+    log,
+    environment,
+    orchestrator,
+    buildVerification,
+    healthService,
+    updateService,
+    sseClients,
+    broadcast,
+    setUpdateShutdown: (handler) => { updateShutdown = handler; }
+  };
 }
 
 async function startServer(options = {}) {
   const authPassword = options.password ?? process.env.WEB_PASSWORD;
-  const app = createApplication({ authPassword });
+  const app = createApplication({ authPassword, updateService: options.updateService });
   const requestedHost = String(options.host ?? process.env.WEB_HOST ?? DEFAULT_HOST).trim() || DEFAULT_HOST;
   const requestedPort = options.port ?? Number(process.env.WEB_PORT || DEFAULT_PORT);
   await new Promise((resolve, reject) => {
@@ -441,6 +480,11 @@ async function startServer(options = {}) {
     await Promise.allSettled([app.orchestrator.tunnel.stop(), app.orchestrator.native.stop()]);
     await new Promise((resolve) => app.server.close(resolve));
   };
+  app.setUpdateShutdown(async () => {
+    await close();
+    if (typeof options.exitForUpdate === 'function') await options.exitForUpdate(0);
+    else process.exit(0);
+  });
   return { ...app, port, host: requestedHost, close };
 }
 

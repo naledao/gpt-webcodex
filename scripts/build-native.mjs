@@ -122,7 +122,14 @@ await fsp.writeFile(seaConfig, `${JSON.stringify({
   useCodeCache: true,
   assets
 }, null, 2)}\n`);
-run(process.execPath, ['--experimental-sea-config', seaConfig]);
+if (process.env.NATIVE_QEMU) {
+  const qemuArgs = [];
+  if (process.env.NATIVE_QEMU_LD_PREFIX) qemuArgs.push('-L', process.env.NATIVE_QEMU_LD_PREFIX);
+  qemuArgs.push(process.execPath, '--experimental-sea-config', seaConfig);
+  run(process.env.NATIVE_QEMU, qemuArgs);
+} else {
+  run(process.execPath, ['--experimental-sea-config', seaConfig]);
+}
 
 const outputName = `web-mcp-assistant-linux-${arch}`;
 const binary = path.join(distRoot, outputName);
@@ -132,7 +139,16 @@ await fsp.chmod(binary, 0o755);
 await ownByCurrentUser(binary);
 
 if (process.env.NATIVE_SKIP_STRIP !== '1') {
-  const strip = spawnSync('strip', ['--strip-unneeded', binary], { cwd: projectRoot, stdio: 'inherit' });
+  const stripCommand = process.env.NATIVE_STRIP || 'strip';
+  const stripLibraryPath = process.env.NATIVE_STRIP_LIBRARY_PATH;
+  const stripEnv = stripLibraryPath
+    ? { ...process.env, LD_LIBRARY_PATH: [stripLibraryPath, process.env.LD_LIBRARY_PATH].filter(Boolean).join(path.delimiter) }
+    : process.env;
+  const strip = spawnSync(stripCommand, ['--strip-unneeded', binary], {
+    cwd: projectRoot,
+    env: stripEnv,
+    stdio: 'inherit'
+  });
   if (strip.error?.code !== 'ENOENT' && strip.status !== 0) {
     throw strip.error || new Error(`strip exited with status ${strip.status}`);
   }
@@ -160,6 +176,10 @@ await ownByCurrentUser(releaseBinary);
 for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.md']) {
   await fsp.copyFile(path.join(projectRoot, name), path.join(releaseDirectory, name));
 }
+const controlScript = path.join(releaseDirectory, 'web-mcp-assistantctl');
+await fsp.copyFile(path.join(projectRoot, 'scripts', 'web-mcp-assistantctl'), controlScript);
+await fsp.chmod(controlScript, 0o755);
+await ownByCurrentUser(controlScript);
 await fsp.writeFile(path.join(releaseDirectory, 'README.txt'), [
   `Web MCP Assistant v${packageJson.version} for Linux ${arch}`,
   '',
@@ -169,6 +189,11 @@ await fsp.writeFile(path.join(releaseDirectory, 'README.txt'), [
   '',
   'Run:',
   '  ./web-mcp-assistant',
+  '',
+  'Background service and updates:',
+  '  ./web-mcp-assistantctl start',
+  '  ./web-mcp-assistantctl update',
+  '  ./web-mcp-assistantctl status',
   '',
   'Optional environment variables:',
   '  WEB_HOST=127.0.0.1',
@@ -181,7 +206,13 @@ const archive = path.join(distRoot, `${releaseName}.tar.gz`);
 await fsp.rm(archive, { force: true });
 run('tar', ['-C', distRoot, '-czf', archive, releaseName]);
 
-const checksums = [binary, archive];
+const checksums = (await Promise.all(['x64', 'arm64'].map(async (candidateArch) => {
+  const candidateBinary = path.join(distRoot, `web-mcp-assistant-linux-${candidateArch}`);
+  const candidateArchive = path.join(distRoot, `web-mcp-assistant-v${packageJson.version}-linux-${candidateArch}.tar.gz`);
+  return await Promise.all([candidateBinary, candidateArchive].map(async (file) => (
+    await fsp.stat(file).then(() => file).catch(() => '')
+  )));
+}))).flat().filter(Boolean);
 const checksumText = `${(await Promise.all(checksums.map(async (file) => (
   `${await fileHash(file)}  ${path.basename(file)}`
 )))).join('\n')}\n`;

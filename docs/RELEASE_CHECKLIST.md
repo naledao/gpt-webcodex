@@ -1,6 +1,6 @@
 # Linux Web 发布检查清单
 
-更新日期：2026-08-19
+更新日期：2026-08-27
 
 ## 源码结构
 
@@ -62,6 +62,10 @@
 - [x] 首次运行按 build ID 释放资源到 XDG cache。
 - [x] 发布包包含 LICENSE、THIRD_PARTY_NOTICES 和 SHA-256 校验文件。
 - [x] arm64 ELF 在隔离 XDG 目录中完成登录、静态页面和 snapshot 烟雾测试。
+- [x] 更新器按 x64/arm64 选择固定 Release 资产，并校验大小、SHA-256 和 ELF machine。
+- [x] GitHub 元数据与资产下载支持应用解析出的 HTTP(S) 代理。
+- [x] 源码模式和不可写安装目录不会执行自替换。
+- [x] 原生更新保留 `.previous`，通过新 ELF 重启助手接管旧端口并支持启动失败回滚。
 - [x] arm64 ELF 释放出的 Tunnel 经 `file` 确认为静态链接 AArch64 ELF。
 - [x] x64 ELF 在 WSL2 x86_64 中完成登录、静态页面和 snapshot 烟雾测试。
 - [x] x64 发布只嵌入 Linux x64 Tunnel，并通过归档 SHA-256 校验。

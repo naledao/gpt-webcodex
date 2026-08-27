@@ -189,6 +189,29 @@ WEB_MCP_RESOURCES_ROOT
 
 发布 ELF 不依赖系统 Node.js；Coding Tools MCP 仍使用系统 Python 3.11+。arm64 发布只嵌入 arm64 Tunnel，x64 发布只嵌入 x64 Tunnel。
 
+x64 WSL2 也可以执行 `npm run build:native:arm64`。交叉构建器在项目 `.cache/cross-arm64/` 下准备便携 QEMU、官方 Node arm64 和 Ubuntu arm64 cross sysroot，再让目标架构 Node 生成 SEA blob；x64 esbuild 只负责生成与架构无关的 CommonJS bundle。整个过程不注册 binfmt、不要求 Docker 或 root 权限。WSL 无法直接访问 Windows 回环代理时，下载器会自动通过 Windows `curl.exe` 使用同一代理。
+
+## GitHub Release 更新链路
+
+`src/services/updateService.js` 只接受 GitHub latest 稳定 Release，并按 `process.arch` 精确选择固定名称的 x64 或 arm64 ELF。元数据和资产下载复用应用的代理选择；`src/services/httpClient.js` 对 HTTPS 目标实现 HTTP(S) 代理 CONNECT、重定向和流式读取。
+
+```text
+Release metadata
+  → semantic version comparison
+  → architecture-specific asset
+  → streamed temporary file
+  → size + SHA-256 + ELF machine verification
+  → .previous backup
+  → atomic rename
+  → new-ELF restart helper
+  → old PID exit
+  → bind original Web port
+```
+
+更新状态写入 XDG state 的 `update-state.json`，下载暂存于 `updates/`，更新日志写入 `logs/update.log`。Web 更新接口必须通过现有登录会话；源码模式、非 Linux 平台、不支持的架构和不可写安装目录都会在替换前被拒绝。
+
+重启助手由已经校验并完成替换的新 ELF 自己运行。它在旧 Web 进程退出后更新控制脚本的 PID/start-time 跟踪文件，再启动服务。如果新版无法完成资源释放或监听 Web 端口，会把当前文件改名为 `.failed`，将 `.previous` 恢复到原路径并启动旧版本。
+
 ## 进程生命周期
 
 运行状态保存在：

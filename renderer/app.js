@@ -19,6 +19,7 @@ const state = {
   selectedWorkspace: '',
   logFilter: 'all',
   logs: [],
+  update: null,
   busy: false,
   initializedForms: false
 };
@@ -46,10 +47,113 @@ function toast(title, message = '', type = 'success') {
 function setBusy(value, overlay = false) {
   state.busy = value;
   $('#busyOverlay').classList.toggle('visible', value && overlay);
-  ['#topStartButton', '#heroStartButton', '#deployNow', '#overviewRestart', '#overviewStop'].forEach((selector) => {
+  ['#topStartButton', '#heroStartButton', '#deployNow', '#overviewRestart', '#overviewStop', '#checkUpdateButton', '#downloadUpdateButton', '#applyUpdateButton'].forEach((selector) => {
     const element = $(selector);
     if (element) element.disabled = value;
   });
+}
+
+function renderUpdateStatus(status) {
+  if (!status) return;
+  state.update = status;
+  const version = textOr(status.currentVersion);
+  $('#currentVersionText').textContent = `v${version} · ${status.native ? '原生 ELF' : '源码模式'}`;
+  $('#appVersionText').textContent = `v${version}`;
+  $('#updateArchitecture').textContent = status.architecture || 'unknown';
+  $('#downloadUpdateButton').hidden = true;
+  $('#applyUpdateButton').hidden = true;
+
+  if (status.error && /failed/.test(status.phase || '')) {
+    $('#updateStatusTitle').textContent = '更新操作失败';
+    $('#updateStatusText').textContent = status.error;
+    return;
+  }
+  if (!status.checkedAt) {
+    $('#updateStatusTitle').textContent = '尚未检查';
+    $('#updateStatusText').textContent = status.applyReason || '点击“检查更新”获取最新稳定版本。';
+    return;
+  }
+  if (!status.available) {
+    $('#updateStatusTitle').textContent = '当前已是最新版本';
+    $('#updateStatusText').textContent = `GitHub 最新稳定版本为 v${status.latestVersion || version}。`;
+    return;
+  }
+
+  if (status.staged) {
+    $('#updateStatusTitle').textContent = `v${status.latestVersion} 已下载并校验`;
+    $('#updateStatusText').textContent = status.canApply
+      ? '可以安装；Web 管理服务将短暂重启，登录会话需要重新建立。'
+      : status.applyReason;
+    $('#applyUpdateButton').hidden = !status.canApply;
+  } else {
+    $('#updateStatusTitle').textContent = `发现新版本 v${status.latestVersion}`;
+    const size = status.asset?.size ? `${(status.asset.size / 1024 / 1024).toFixed(1)} MB` : '未知大小';
+    $('#updateStatusText').textContent = `${status.asset?.name || '原生资产'} · ${size}${status.immutable ? ' · 不可变 Release' : ''}`;
+    $('#downloadUpdateButton').hidden = false;
+  }
+}
+
+function renderUpdateProgress(payload) {
+  if (!payload) return;
+  const progress = $('#updateProgress');
+  progress.hidden = false;
+  const percent = Math.max(0, Math.min(100, Number(payload.percent) || 0));
+  $('#updateProgressText').textContent = payload.message || '正在处理更新';
+  $('#updateProgressPercent').textContent = `${percent}%`;
+  $('#updateProgressBar').value = percent;
+}
+
+async function loadUpdateStatus() {
+  try {
+    const status = unwrap(await api.updateStatus());
+    renderUpdateStatus(status);
+    return status;
+  } catch (error) {
+    toast('版本信息读取失败', error.message, 'error');
+    return null;
+  }
+}
+
+async function checkForUpdate() {
+  setBusy(true);
+  renderUpdateProgress({ percent: 5, message: '正在检查 GitHub 最新稳定版本' });
+  try {
+    const status = unwrap(await api.checkUpdate());
+    renderUpdateStatus(status);
+    renderUpdateProgress({ percent: 100, message: status.available ? `发现新版本 v${status.latestVersion}` : '当前已是最新版本' });
+    toast(status.available ? '发现可用更新' : '无需更新', status.available ? `v${status.latestVersion} 可以下载。` : `当前版本 v${status.currentVersion}。`);
+  } catch (error) {
+    toast('检查更新失败', error.message, 'error');
+    await loadUpdateStatus();
+  } finally { setBusy(false); }
+}
+
+async function downloadUpdate() {
+  setBusy(true);
+  try {
+    const status = unwrap(await api.downloadUpdate());
+    renderUpdateStatus(status);
+    toast('更新下载完成', `v${status.stagedVersion} 已通过 SHA-256 与 ELF 架构校验。`);
+  } catch (error) {
+    toast('更新下载失败', error.message, 'error');
+    await loadUpdateStatus();
+  } finally { setBusy(false); }
+}
+
+async function applyUpdate() {
+  const version = state.update?.latestVersion || '';
+  if (!confirm(`确定安装 v${version} 并重启 Web 管理服务吗？`)) return;
+  setBusy(true, true);
+  try {
+    unwrap(await api.applyUpdate());
+    renderUpdateProgress({ percent: 100, message: `v${version} 已安装，正在重启服务` });
+    toast('更新已安装', '服务正在重启，页面将重新加载。');
+    setTimeout(() => location.reload(), 4500);
+  } catch (error) {
+    setBusy(false);
+    toast('安装更新失败', error.message, 'error');
+    await loadUpdateStatus();
+  }
 }
 
 function setDot(element, status) {
@@ -669,6 +773,9 @@ function bindEvents() {
     try { await api.logout(); }
     finally { location.replace('/login'); }
   });
+  $('#checkUpdateButton').addEventListener('click', checkForUpdate);
+  $('#downloadUpdateButton').addEventListener('click', downloadUpdate);
+  $('#applyUpdateButton').addEventListener('click', applyUpdate);
   $('#proxyModeSelect').addEventListener('change', () => { renderProxyControls(); renderDeploySummary(); });
   $('#proxyDetect').addEventListener('click', async () => {
     try {
@@ -743,6 +850,7 @@ async function initialize() {
       else if (payload.status === 'running') { $('#buildStatus').textContent = payload.stage === 'test' ? '正在测试' : '正在构建'; appendBuildOutput(`\n> ${payload.command}\n`); }
       else if (payload.stage === 'complete') $('#buildStatus').textContent = payload.status === 'passed' ? '已通过' : '未通过';
     });
+    api.onUpdateProgress(renderUpdateProgress);
     const requestedPage = location.hash.slice(1);
     if (pageMeta[requestedPage]) navigate(requestedPage);
 
@@ -752,7 +860,10 @@ async function initialize() {
     document.body.classList.add('booted');
     $('#bootScreen')?.setAttribute('aria-hidden', 'true');
 
-    const firstSnapshot = await refreshSnapshot({ forceForms: true });
+    const [firstSnapshot] = await Promise.all([
+      refreshSnapshot({ forceForms: true }),
+      loadUpdateStatus()
+    ]);
     if (firstSnapshot && !firstSnapshot.settings.firstRunCompleted) {
       try {
         navigate('health');

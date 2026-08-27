@@ -38,7 +38,18 @@ test('Web server requires password authentication and protects REST/SSE', async 
 
   const { startServer } = require('../web/server');
   const password = 'test-web-password';
-  const instance = await startServer({ host: '0.0.0.0', port: 0, password });
+  const updateCalls = [];
+  const updateStatus = {
+    currentVersion: '0.1.7', latestVersion: '0.1.8', architecture: 'x64', native: true,
+    canApply: true, available: true, staged: false, phase: 'checked'
+  };
+  const updateService = {
+    status: async () => ({ ...updateStatus }),
+    check: async (options) => { updateCalls.push(['check', options]); return { ...updateStatus }; },
+    download: async () => { updateCalls.push(['download']); return { ...updateStatus, staged: true }; },
+    install: async () => { throw new Error('install is not exercised by this server test'); }
+  };
+  const instance = await startServer({ host: '0.0.0.0', port: 0, password, updateService });
   t.after(async () => {
     await instance.close();
     if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = oldConfig;
@@ -94,6 +105,14 @@ test('Web server requires password authentication and protects REST/SSE', async 
 
   const task = await httpRequest(instance.port, 'GET', '/api/task-state', undefined, authenticated);
   assert.equal(JSON.parse(task.text).data.exists, false);
+
+  const update = await httpRequest(instance.port, 'GET', '/api/update/status', undefined, authenticated);
+  assert.equal(JSON.parse(update.text).data.latestVersion, '0.1.8');
+  const checkedUpdate = await httpRequest(instance.port, 'POST', '/api/update/check', {}, authenticated);
+  assert.equal(JSON.parse(checkedUpdate.text).data.available, true);
+  const downloadedUpdate = await httpRequest(instance.port, 'POST', '/api/update/download', {}, authenticated);
+  assert.equal(JSON.parse(downloadedUpdate.text).data.staged, true);
+  assert.deepEqual(updateCalls, [['check', { force: true }], ['download']]);
 
   await new Promise((resolve, reject) => {
     const request = http.get({ host: '127.0.0.1', port: instance.port, path: '/api/events', headers: authenticated }, (response) => {

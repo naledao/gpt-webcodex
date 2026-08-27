@@ -305,6 +305,15 @@ body[data-theme="light"] .log-line span { color: #3e4859; }
 .about-panel h3 { margin: 0 0 5px; }
 .about-panel h3 span { color: var(--muted-2); font-size: 10px; }
 .about-panel p { margin: 0; color: var(--muted); font-size: 10px; }
+.update-panel { margin-top: 14px; }
+.update-panel .panel-title > div { flex: 1; }
+.update-panel .panel-title p { margin: 5px 0 0; color: var(--muted); font-size: 9px; }
+.update-progress { padding: 13px 18px 16px; border-top: 1px solid var(--border); }
+.update-progress > div { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--muted); font-size: 9px; }
+.update-progress progress { display: block; width: 100%; height: 7px; overflow: hidden; border: 0; border-radius: 999px; background: var(--surface-3); }
+.update-progress progress::-webkit-progress-bar { border-radius: inherit; background: var(--surface-3); }
+.update-progress progress::-webkit-progress-value { border-radius: inherit; background: var(--blue-2); }
+.update-progress progress::-moz-progress-bar { border-radius: inherit; background: var(--blue-2); }
 
 .toast-stack { position: fixed; z-index: 50; right: 22px; bottom: 22px; display: grid; gap: 8px; width: 330px; pointer-events: none; }
 .toast { padding: 13px 14px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface-2); box-shadow: var(--shadow); animation: toast-in .2s ease; }

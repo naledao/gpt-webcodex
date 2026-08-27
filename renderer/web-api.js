@@ -73,12 +73,17 @@
     logs: () => request('GET', '/api/logs'),
     clearLogs: () => request('DELETE', '/api/logs'),
     detectProxy: () => request('POST', '/api/proxy/detect'),
+    updateStatus: () => request('GET', '/api/update/status'),
+    checkUpdate: () => request('POST', '/api/update/check'),
+    downloadUpdate: () => request('POST', '/api/update/download'),
+    applyUpdate: () => request('POST', '/api/update/apply'),
     logout: () => request('POST', '/api/auth/logout'),
     openExternal,
     onProgress: (listener) => subscribe('runtime:progress', listener),
     onLog: (listener) => subscribe('logs:entry', listener),
     onStatus: (listener) => subscribe('runtime:status', listener),
     onHeartbeat: (listener) => subscribe('runtime:heartbeat', listener),
-    onBuildProgress: (listener) => subscribe('build:progress', listener)
+    onBuildProgress: (listener) => subscribe('build:progress', listener),
+    onUpdateProgress: (listener) => subscribe('update:progress', listener)
   };
 })();

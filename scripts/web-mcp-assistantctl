@@ -28,6 +28,7 @@ resolve_binary() {
   local candidates=(
     "$SCRIPT_DIR/../dist/$NATIVE_BINARY_NAME"
     "$SCRIPT_DIR/$NATIVE_BINARY_NAME"
+    "$SCRIPT_DIR/web-mcp-assistant"
     "$SCRIPT_DIR/../libexec/$APP_NAME"
     "/usr/local/libexec/$APP_NAME"
   )
@@ -55,12 +56,13 @@ mkdir -p -- "$LOG_DIR"
 
 usage() {
   cat <<'EOF'
-Usage: web-mcp-assistantctl {start|stop|restart|status|logs}
+Usage: web-mcp-assistantctl {start|stop|restart|update|status|logs}
 
 Commands:
   start       Start the native binary in a detached session.
   stop        Gracefully stop the tracked process.
   restart     Stop and start the tracked process.
+  update      Download, verify and install the latest GitHub Release.
   status      Show whether the tracked process is running.
   logs [-f]   Show the latest manager log; -f follows new output.
 
@@ -231,12 +233,40 @@ show_logs() {
   exec tail -n 100 -- "$LOG_FILE"
 }
 
+update_service() {
+  local before after was_running=0
+
+  if [[ ! -x "$BINARY" ]]; then
+    printf 'Native binary is missing or not executable: %s\n' "$BINARY" >&2
+    return 1
+  fi
+  if is_running; then
+    was_running=1
+  fi
+
+  before="$(sha256sum -- "$BINARY" | awk '{print $1}')"
+  "$BINARY" --self-update
+  after="$(sha256sum -- "$BINARY" | awk '{print $1}')"
+  if [[ "$before" == "$after" ]]; then
+    printf '%s is already up to date.\n' "$APP_NAME"
+    return 0
+  fi
+
+  printf 'Installed a new %s binary.\n' "$APP_NAME"
+  if ((was_running)); then
+    stop_service
+    start_service
+  else
+    printf 'The service was not running; start it with: web-mcp-assistantctl start\n'
+  fi
+}
+
 command_name="${1:-}"
 case "$command_name" in
   logs)
     show_logs "${2:-}"
     ;;
-  start|stop|restart|status)
+  start|stop|restart|update|status)
     exec 9>"$LOCK_FILE"
     flock -x 9
     case "$command_name" in
@@ -249,6 +279,9 @@ case "$command_name" in
       restart)
         stop_service
         start_service
+        ;;
+      update)
+        update_service
         ;;
       status)
         show_status

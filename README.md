@@ -88,11 +88,19 @@ npm install
 npm run build:native
 ```
 
+在 x64 WSL2 上交叉构建 arm64 单文件 ELF：
+
+```bash
+npm run build:native:arm64
+```
+
+该命令不需要 `sudo` 或 Docker。它会在项目的 `.cache/cross-arm64/` 下载并校验官方 Node arm64 运行时，同时使用便携 QEMU 和 Ubuntu arm64 cross sysroot 执行目标架构 SEA 构建。网络请求遵循 `HTTP_PROXY`、`HTTPS_PROXY`；在 WSL 中检测到 `127.0.0.1` 回环代理时，会自动改由 Windows `curl.exe` 访问该代理。
+
 产物名称随当前主机架构变化（`x64` 或 `arm64`）：
 
 ```text
 dist/web-mcp-assistant-linux-<arch>
-dist/web-mcp-assistant-v0.1.7-linux-<arch>.tar.gz
+dist/web-mcp-assistant-v0.1.8-linux-<arch>.tar.gz
 dist/SHA256SUMS-native.txt
 ```
 
@@ -109,6 +117,7 @@ chmod +x scripts/web-mcp-assistantctl
 scripts/web-mcp-assistantctl start
 scripts/web-mcp-assistantctl status
 scripts/web-mcp-assistantctl restart
+scripts/web-mcp-assistantctl update
 scripts/web-mcp-assistantctl stop
 scripts/web-mcp-assistantctl logs
 scripts/web-mcp-assistantctl logs -f
@@ -138,6 +147,30 @@ ${XDG_CACHE_HOME:-~/.cache}/web-mcp-assistant/native/<build-id>/
 ```
 
 原生发布包运行时不需要安装 Node.js 或 npm，但仍需要系统提供 Python 3.11 或更高版本。配置、密钥和状态继续使用原有 XDG 目录，升级二进制不会清空现有配置。
+
+### GitHub Release 更新
+
+原生 ELF 可以在“助手设置 → 版本与更新”中检查稳定版本。更新器从仓库的 latest GitHub Release 读取元数据，根据 `x64` 或 `arm64` 选择对应资产，并在安装前依次校验：
+
+- Release 声明的文件大小；
+- GitHub 返回的 SHA-256 digest；
+- ELF64 标识和目标 machine 架构。
+
+下载文件保存在：
+
+```text
+${XDG_STATE_HOME:-~/.local/state}/web-mcp-assistant/updates/
+```
+
+安装时会在目标二进制旁保留一个 `.previous` 备份，使用同一文件系统内的原子重命名完成替换。新版 ELF 先作为重启助手等待旧进程完全退出，再接管原端口；如果新版连 Web 服务都无法启动，会恢复备份并重新启动旧版。
+
+后台安装也可以执行：
+
+```bash
+web-mcp-assistantctl update
+```
+
+自动替换只在原生 SEA 模式且当前用户对二进制目录有写权限时启用。`npm start` 源码模式不会尝试替换系统 Node.js；安装在 `/usr/local/libexec` 且归 root 所有的文件，需要使用有权限的终端更新。版本发布必须使用递增的新标签，不应覆盖已经发布的稳定版本资产。
 
 ## 工作目录
 
