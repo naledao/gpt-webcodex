@@ -1,16 +1,23 @@
 {
   "name": "web-mcp-assistant",
-  "version": "0.1.6",
+  "version": "0.1.9",
   "description": "用于部署和管理 Coding Tools MCP、OpenAI Tunnel 与 ChatGPT 接入的 Windows 设置管理器",
   "author": "3169657175",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/naledao/gpt-webcodex.git"
+  },
   "main": "electron/main.js",
   "scripts": {
     "icon:build": "node scripts/generate-icon.js",
+    "runtime:prepare": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-native-runtime.ps1",
     "start": "electron .",
     "test": "node --test tests/*.test.js && node scripts/check-source-root-clean.js",
     "audit:prod": "npm audit --omit=dev",
-    "dist": "npm run icon:build && npm test && electron-builder --win nsis",
+    "verify:release": "node scripts/verify-release.js",
+    "dist": "npm run runtime:prepare && npm run icon:build && npm test && electron-builder --win nsis --publish never",
+    "release:win": "npm run runtime:prepare && npm run icon:build && npm test && electron-builder --win nsis --publish always",
     "dist:dir": "npm run icon:build && electron-builder --dir"
   },
   "dependencies": {
@@ -27,6 +34,12 @@
     "artifactName": "web-mcp-assistant-setup-${version}.${ext}",
     "directories": {
       "output": "dist"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "naledao",
+      "repo": "gpt-webcodex",
+      "releaseType": "draft"
     },
     "files": [
       "package.json",

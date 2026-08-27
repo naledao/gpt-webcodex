@@ -13,6 +13,10 @@
 - [x] ChatGPT/OpenAI 外链使用系统默认浏览器
 - [x] NSIS 安装包构建
 - [x] 安装包 SHA-256 生成
+- [x] GitHub Release 更新状态机、代理和安装前停服单元测试
+- [x] `latest.yml`、NSIS 安装包与 blockmap 发布产物校验
+- [ ] latest 稳定 Release 同时包含 Linux 与 Windows 资产
+- [ ] 从上一安装版到当前版完成一次真实更新测试
 - [ ] Windows 代码签名证书签名
 - [ ] 在全新 Windows 用户账户中完成一次端到端安装测试
 - [ ] 使用真实的新 Tunnel 完成 ChatGPT 连接测试

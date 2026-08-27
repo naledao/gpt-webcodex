@@ -11,7 +11,9 @@ const { run } = require('./services/commandRunner');
 const { resolveProxy, clearProxyCache } = require('./services/proxyService');
 const { BuildVerificationService } = require('./services/buildVerificationService');
 const { HealthService } = require('./services/healthService');
+const { UpdateService, AUTOMATIC_CHECK_INTERVAL_MS } = require('./services/updateService');
 const { readJson, writeJsonAtomic } = require('./services/jsonStore');
+const { updateStateFile } = require('./paths');
 
 let managerWindow;
 let orchestrator;
@@ -19,6 +21,7 @@ let forceQuit = false;
 let tray = null;
 let buildVerification;
 let healthService;
+let updateService;
 const settings = new SettingsStore();
 const secrets = new SecretStore();
 const log = new LogService();
@@ -30,6 +33,21 @@ function appIconPath() {
 
 function sendManager(channel, payload) {
   if (managerWindow && !managerWindow.isDestroyed()) managerWindow.webContents.send(channel, payload);
+}
+
+function scheduleAutomaticUpdateChecks() {
+  if (!updateService?.status().canUpdate) return;
+  const check = () => {
+    const state = updateService.status();
+    if (state.busy || state.downloaded) return;
+    updateService.check().catch((error) => {
+      log.warn(`自动更新检查未完成：${safeMessage(error)}`, { stage: 'update-auto-check' });
+    });
+  };
+  const initial = setTimeout(check, 20_000);
+  const interval = setInterval(check, AUTOMATIC_CHECK_INTERVAL_MS);
+  initial.unref();
+  interval.unref();
 }
 
 function safeMessage(error) {
@@ -214,6 +232,10 @@ function registerIpc() {
   secureHandle('build:run', (_event, options) => invokeSafely(() => buildVerification.execute(settings.load().workspace, options || {})));
   secureHandle('health:inspect', () => invokeSafely(() => healthService.inspect()));
   secureHandle('health:repair', () => invokeSafely(() => healthService.repair()));
+  secureHandle('update:status', () => invokeSafely(async () => updateService.status()));
+  secureHandle('update:check', () => invokeSafely(() => updateService.check()));
+  secureHandle('update:download', () => invokeSafely(() => updateService.download()));
+  secureHandle('update:install', () => invokeSafely(() => updateService.install()));
   secureHandle('manager:close', () => invokeSafely(async () => {
     if (managerWindow && !managerWindow.isDestroyed()) setImmediate(() => managerWindow?.close());
     return true;
@@ -256,7 +278,7 @@ function registerIpc() {
     return result.stdout;
   }));
   secureHandle('shell:open', (_event, target) => invokeSafely(async () => {
-    const allowed = new Set(['chatgpt-connectors', 'openai-tunnels', 'openai-runtime-keys', 'tunnel-ui', 'coding-tools-source']);
+    const allowed = new Set(['chatgpt-connectors', 'openai-tunnels', 'openai-runtime-keys', 'tunnel-ui', 'coding-tools-source', 'app-releases']);
     if (!allowed.has(target)) throw new Error('不允许打开该地址。');
     const current = settings.load();
     const urls = {
@@ -264,7 +286,8 @@ function registerIpc() {
       'openai-tunnels': 'https://platform.openai.com/settings/organization/tunnels',
       'openai-runtime-keys': 'https://platform.openai.com/settings/organization/api-keys',
       'tunnel-ui': `http://127.0.0.1:${current.healthPort}/ui`,
-      'coding-tools-source': 'https://github.com/xyTom/coding-tools-mcp'
+      'coding-tools-source': 'https://github.com/xyTom/coding-tools-mcp',
+      'app-releases': 'https://github.com/naledao/gpt-webcodex/releases'
     };
     await shell.openExternal(urls[target]);
     return true;
@@ -293,6 +316,19 @@ app.whenReady().then(async () => {
   });
   buildVerification = new BuildVerificationService(log, (payload) => sendManager('build:progress', payload));
   healthService = new HealthService({ settings, secrets, environment, orchestrator });
+  updateService = new UpdateService({
+    currentVersion: app.getVersion(),
+    platform: process.platform,
+    architecture: process.arch,
+    isPackaged: app.isPackaged,
+    settingsStore: settings,
+    log,
+    emitState: (payload) => sendManager('update:state-changed', payload),
+    runtimeStatus: () => orchestrator.snapshot({ force: true }),
+    stopRuntime: () => orchestrator.stop({ manual: false }),
+    markQuit: () => { forceQuit = true; },
+    resumeStateFile: updateStateFile()
+  });
   log.on('entry', (payload) => sendManager('logs:entry', payload));
   registerIpc();
   openManagerWindow();
@@ -300,9 +336,13 @@ app.whenReady().then(async () => {
     sendManager('runtime:heartbeat', status);
   }).catch(() => {}), 5000).unref();
   log.info('网页 MCP 助手已启动');
-  if (settings.load().autoStartServices && !orchestrator.isManuallyStopped()) {
-    orchestrator.start({ automatic: true }).catch((error) => log.error(error.message, { stage: 'auto-start' }));
+  const resumeServicesAfterUpdate = updateService.hasResumeServicesIntent();
+  if (resumeServicesAfterUpdate || (settings.load().autoStartServices && !orchestrator.isManuallyStopped())) {
+    orchestrator.start({ automatic: true })
+      .then(() => { if (resumeServicesAfterUpdate) updateService.clearResumeServicesIntent(); })
+      .catch((error) => log.error(error.message, { stage: 'auto-start' }));
   }
+  scheduleAutomaticUpdateChecks();
 });
 
 app.on('before-quit', () => { forceQuit = true; });

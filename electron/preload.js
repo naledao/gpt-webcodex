@@ -17,6 +17,10 @@ contextBridge.exposeInMainWorld('mcpAssistant', {
   runBuild: (options) => ipcRenderer.invoke('build:run', options),
   inspectHealth: () => ipcRenderer.invoke('health:inspect'),
   repairHealth: () => ipcRenderer.invoke('health:repair'),
+  updateStatus: () => ipcRenderer.invoke('update:status'),
+  checkForUpdate: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
   closeManager: () => ipcRenderer.invoke('manager:close'),
   saveSettings: (patch) => ipcRenderer.invoke('settings:save', patch),
   saveRuntimeKey: (value) => ipcRenderer.invoke('secrets:runtime-key', value),
@@ -42,7 +46,8 @@ contextBridge.exposeInMainWorld('mcpAssistant', {
   },
   onStatus: (listener) => { const wrapped = (_event, payload) => listener(payload); ipcRenderer.on('runtime:status-changed', wrapped); return () => ipcRenderer.removeListener('runtime:status-changed', wrapped); },
   onHeartbeat: (listener) => { const wrapped = (_event, payload) => listener(payload); ipcRenderer.on('runtime:heartbeat', wrapped); return () => ipcRenderer.removeListener('runtime:heartbeat', wrapped); },
-  onBuildProgress: (listener) => { const wrapped = (_event, payload) => listener(payload); ipcRenderer.on('build:progress', wrapped); return () => ipcRenderer.removeListener('build:progress', wrapped); }
+  onBuildProgress: (listener) => { const wrapped = (_event, payload) => listener(payload); ipcRenderer.on('build:progress', wrapped); return () => ipcRenderer.removeListener('build:progress', wrapped); },
+  onUpdateState: (listener) => { const wrapped = (_event, payload) => listener(payload); ipcRenderer.on('update:state-changed', wrapped); return () => ipcRenderer.removeListener('update:state-changed', wrapped); }
 });
 
 

@@ -28,6 +28,7 @@ Codex 额度不够用时，直接切到网页版 ChatGPT 接上这个助手，�
 - **全局项目规则分层**：可选择注入全局 `AGENTS.override.md` / `AGENTS.md`，再叠加项目规则；项目规则具有更高优先级。该功能默认关闭，重新部署后生效。
 - **密钥本地加密**：API Key 保存在 Windows 本地 DPAPI 密钥库里，不上传任何第三方服务器。
 - **自动代理重连**：能自动识别系统代理，后台带连接诊断，掉线了会静默重连。
+- **GitHub 稳定版更新**：安装版会定期检查 GitHub Releases；由用户确认下载、校验并安装，更新重启后恢复原来的 MCP 与 Tunnel 运行状态。
 
 ---
 
@@ -36,8 +37,10 @@ Codex 额度不够用时，直接切到网页版 ChatGPT 接上这个助手，�
 普通使用**完全不需要配置任何开发环境**：
 
 1. 直接点击 GitHub 页面右侧的 **[Releases](../../releases)** 链接。
-2. 下载最新的 `.exe` 安装包（如 `web-mcp-assistant-setup-0.1.6.exe`），双击安装即可。
+2. 下载最新的 `.exe` 安装包（如 `web-mcp-assistant-setup-0.1.9.exe`），双击安装即可。
 3. 启动后直接进入管理中心，完成工作目录、Tunnel、Runtime Key、代理和启动行为配置。
+
+从 `v0.1.9` 开始，后续稳定版可以在“偏好设置 → 软件更新”中检查、下载并安装。旧版尚未包含更新器，因此从 `v0.1.6` 升级到 `v0.1.9` 仍需手动下载安装一次。
 
 ---
 
@@ -47,7 +50,7 @@ Codex 额度不够用时，直接切到网页版 ChatGPT 接上这个助手，�
 
 ```powershell
 # 克隆项目并安装依赖
-git clone https://github.com/3169657175/gpt-webcodex.git
+git clone https://github.com/naledao/gpt-webcodex.git
 cd gpt-webcodex
 npm install
 
@@ -58,9 +61,11 @@ npm start
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
 ```
 
+发布 Windows 更新资产前，先创建与 `package.json` 版本一致的统一 Draft Release，并运行 GitHub Actions 的 `Build Windows Release Assets`。工作流只向现有草稿上传 `latest.yml`、NSIS 安装包与 blockmap，不会发布缺少 Linux 资产的不完整稳定版。详见 [Windows 更新发布说明](docs/WINDOWS_UPDATE_RELEASE.md)。
+
 ---
 
 ## 📜 开源协议
 
 - 本项目基于 [MIT License](LICENSE) 开源。
-- 内置集成 [Coding Tools MCP](https://github.com/anthropics/anthropic-tools) 源码，遵循 Apache License 2.0 规范，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+- 内置集成 [Coding Tools MCP](https://github.com/xyTom/coding-tools-mcp) 源码，遵循 Apache License 2.0 规范，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

@@ -45,3 +45,20 @@ test('management UI has no embedded ChatGPT session controls', () => {
   assert.match(app, /globalAgentsEnabled/);
   assert.doesNotMatch(`${html}\n${app}\n${preload}`, /clearChatSession|ChatGPT 登录数据|内联网页/);
 });
+
+test('GitHub Release updates stay behind trusted main-process IPC', () => {
+  const main = read('electron/main.js');
+  const preload = read('electron/preload.js');
+  const html = read('renderer/index.html');
+  const pkg = JSON.parse(read('package.json'));
+  assert.match(main, /new UpdateService/);
+  assert.match(main, /secureHandle\('update:check'/);
+  assert.match(main, /secureHandle\('update:download'/);
+  assert.match(main, /secureHandle\('update:install'/);
+  assert.match(preload, /ipcRenderer\.invoke\('update:check'\)/);
+  assert.match(preload, /ipcRenderer\.on\('update:state-changed'/);
+  assert.match(html, /id="checkUpdateButton"/);
+  assert.match(html, /id="installUpdateButton"/);
+  assert.doesNotMatch(`${preload}\n${html}`, /setFeedURL|quitAndInstall/);
+  assert.deepEqual(pkg.build.publish, { provider: 'github', owner: 'naledao', repo: 'gpt-webcodex', releaseType: 'draft' });
+});

@@ -1,0 +1,65 @@
+name: Build Windows Release Assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing unified draft release tag, for example v0.1.9
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out Windows source
+        uses: actions/checkout@v4
+        with:
+          ref: windows
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build NSIS assets
+        run: npm run dist
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Verify version and update metadata
+        run: npm run verify:release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+
+      - name: Require an existing draft release
+        shell: pwsh
+        run: |
+          $draft = gh release view $env:RELEASE_TAG --repo $env:GH_REPO --json isDraft --jq '.isDraft'
+          if ($draft -ne 'true') { throw 'The target release must already exist and remain a draft.' }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+
+      - name: Upload Windows update assets to the draft
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          gh release upload $env:RELEASE_TAG `
+            "dist/latest.yml" `
+            "dist/web-mcp-assistant-setup-$version.exe" `
+            "dist/web-mcp-assistant-setup-$version.exe.blockmap" `
+            --clobber --repo $env:GH_REPO
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}

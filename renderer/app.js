@@ -16,6 +16,7 @@ function createPreviewApi() {
     },
     status: { busy: false, runtimeRunning: true, tunnelRunning: true, fullyReady: true, localMcpUrl: 'http://127.0.0.1:18765/mcp', tunnelUiUrl: 'http://127.0.0.1:18081/ui' }
   };
+  const updatePreview = { currentVersion: '0.1.9', platform: 'win32', architecture: 'x64', canUpdate: false, capabilityReason: '静态预览模式不会安装更新。', phase: 'idle', available: false, downloaded: false, progress: 0, latest: null, error: '' };
   const ok = (data) => Promise.resolve({ ok: true, data });
   return {
     snapshot: () => ok(snapshot), chooseWorkspace: () => ok(snapshot.settings.workspace), switchWorkspace: (workspace) => { snapshot.settings.workspace=workspace; return ok(snapshot); }, updateAuthorizedRoots: (roots) => { snapshot.settings.authorizedRoots=roots; return ok(snapshot); }, closeManager: () => ok(true),
@@ -25,7 +26,8 @@ function createPreviewApi() {
     logs: () => ok([{ time: new Date().toISOString(), level: 'info', message: '静态界面预览模式' }]), clearLogs: () => ok(true),
     taskState: () => ok({ exists: false, state: null }), clearTaskState: () => ok(true), pauseTask: () => ok({}), resumeTask: () => ok({}), stopTask: () => ok({}), taskHistory: () => ok([]), performanceTrace: () => ok(null), clearPerformanceTrace: () => ok(true),
     inspectBuild: () => ok({ type: 'electron', name: 'demo', version: '0.1.0', testCommand: 'npm test', buildCommand: 'npm run dist', artifacts: ['dist'] }), runBuild: () => ok({ overallStatus: 'passed', project: { type: 'electron', name: 'demo', version: '0.1.0' }, testResult: { status: 'passed' }, buildResult: { status: 'passed' }, artifacts: [] }), inspectHealth: () => ok({ healthy: true, checks: [] }), repairHealth: () => ok({ healthy: true, checks: [], actions: [], unresolved: [] }),
-    openExternal: () => ok(true), installPython: () => ok(true), detectProxy: () => ok(snapshot.environment.proxy), onProgress: () => () => {}, onLog: () => () => {}, onStatus: () => () => {}, onHeartbeat: () => () => {}, onBuildProgress: () => () => {}
+    updateStatus: () => ok(updatePreview), checkForUpdate: () => ok(updatePreview), downloadUpdate: () => ok(updatePreview), installUpdate: () => ok(updatePreview),
+    openExternal: () => ok(true), installPython: () => ok(true), detectProxy: () => ok(snapshot.environment.proxy), onProgress: () => () => {}, onLog: () => () => {}, onStatus: () => () => {}, onHeartbeat: () => () => {}, onBuildProgress: () => () => {}, onUpdateState: () => () => {}
   };
 }
 
@@ -48,7 +50,8 @@ const state = {
   logFilter: 'all',
   logs: [],
   busy: false,
-  initializedForms: false
+  initializedForms: false,
+  update: null
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -601,6 +604,91 @@ async function repairHealth() {
   finally { $('#repairHealth').disabled = false; }
 }
 
+function formatUpdateBytes(value) {
+  const bytes = Number(value || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function renderUpdateStatus(status) {
+  if (!status) return;
+  state.update = status;
+  const version = textOr(status.currentVersion, '0.0.0').replace(/^v/i, '');
+  const latestVersion = textOr(status.latest?.version, '').replace(/^v/i, '');
+  $('#currentVersionText').textContent = `v${version}`;
+  $('#aboutVersion').textContent = `v${version}`;
+  $('#updateArchitecture').textContent = `${status.platform || 'unknown'} · ${status.architecture || 'unknown'}`;
+  $('#updateStatusChip').textContent = status.phase === 'downloaded' ? '等待安装' : status.busy ? '处理中' : status.phase === 'up-to-date' ? '已是最新' : status.available ? '有新版本' : '稳定通道';
+
+  let title = '尚未检查更新';
+  let detail = '应用会定期检查 GitHub 最新稳定版本，也可以立即手动检查。';
+  if (!status.canUpdate) {
+    title = '当前模式不支持安装更新';
+    detail = status.capabilityReason || detail;
+  } else if (status.phase === 'error') {
+    title = '更新操作失败';
+    detail = status.error || '请稍后重试。';
+  } else if (status.phase === 'checking') {
+    title = '正在检查 GitHub Releases';
+    detail = '正在读取最新稳定版本与 Windows 更新元数据。';
+  } else if (status.phase === 'up-to-date') {
+    title = '当前已是最新版本';
+    detail = `GitHub 最新稳定版本为 v${latestVersion || version}。`;
+  } else if (status.phase === 'available') {
+    title = `发现新版本 v${latestVersion}`;
+    detail = '下载后会验证 SHA-512；已配置代码签名时还会验证安装包发布者。';
+  } else if (status.phase === 'downloading') {
+    title = `正在下载 v${latestVersion}`;
+    detail = `${formatUpdateBytes(status.transferred)} / ${formatUpdateBytes(status.total)} · ${formatUpdateBytes(status.bytesPerSecond)}/s`;
+  } else if (status.phase === 'downloaded') {
+    title = `v${latestVersion} 已下载并验证`;
+    detail = '安装时会先安全停止 MCP 与 Tunnel，完成后重启助手并恢复原来的服务状态。';
+  } else if (status.phase === 'install-pending') {
+    title = '即将安装并重启';
+    detail = '本地服务已安全停止，安装程序正在启动。';
+  }
+
+  $('#updateStatusTitle').textContent = title;
+  $('#updateStatusText').textContent = detail;
+  $('#checkUpdateButton').disabled = Boolean(status.busy) || !status.canUpdate || status.downloaded;
+  $('#downloadUpdateButton').disabled = Boolean(status.busy);
+  $('#installUpdateButton').disabled = Boolean(status.busy);
+  $('#downloadUpdateButton').hidden = !(status.available && !status.downloaded && status.phase !== 'downloading');
+  $('#installUpdateButton').hidden = !status.downloaded;
+  const showProgress = status.phase === 'downloading';
+  $('#updateProgress').hidden = !showProgress;
+  const percent = Math.max(0, Math.min(100, Number(status.progress || 0)));
+  $('#updateProgressBar').value = percent;
+  $('#updateProgressPercent').textContent = `${percent.toFixed(0)}%`;
+  const notes = status.latest?.releaseNotes || '';
+  $('#updateReleaseNotes').hidden = !notes;
+  $('#updateReleaseNotesText').textContent = notes;
+}
+
+async function loadUpdateStatus() {
+  try { renderUpdateStatus(unwrap(await api.updateStatus())); }
+  catch (error) { toast('无法读取更新状态', error.message, 'error'); }
+}
+
+async function runUpdateAction(action) {
+  try {
+    const method = action === 'check' ? 'checkForUpdate' : action === 'download' ? 'downloadUpdate' : 'installUpdate';
+    const result = unwrap(await api[method]());
+    renderUpdateStatus(result);
+    if (action === 'check') {
+      toast(result.available ? `发现新版本 v${result.latest?.version}` : '当前已是最新版本', result.available ? '可以在设置页下载更新。' : `当前版本 v${result.currentVersion}。`);
+    } else if (action === 'download') {
+      toast('更新已下载并验证', '准备好后点击“安装并重启”。');
+    } else {
+      toast('正在启动安装程序', '助手将退出并在安装完成后重新启动。');
+    }
+  } catch (error) {
+    toast(action === 'check' ? '检查更新失败' : action === 'download' ? '下载更新失败' : '安装更新失败', error.message, 'error');
+    await loadUpdateStatus();
+  }
+}
+
 function applyHeartbeat(status) {
   if (!state.snapshot || !status) return;
   state.snapshot.status.runtimeRunning = Boolean(status.mcpRunning);
@@ -750,6 +838,9 @@ function bindEvents() {
   $('#runBuild').addEventListener('click', runBuildVerification);
   $('#inspectHealth').addEventListener('click', inspectHealth);
   $('#repairHealth').addEventListener('click', repairHealth);
+  $('#checkUpdateButton').addEventListener('click', () => runUpdateAction('check'));
+  $('#downloadUpdateButton').addEventListener('click', () => runUpdateAction('download'));
+  $('#installUpdateButton').addEventListener('click', () => runUpdateAction('install'));
   $('#toolModeSelect')?.addEventListener('change', async () => {
     try {
       const wasRunning = Boolean(state.snapshot?.status.runtimeRunning);
@@ -784,6 +875,7 @@ async function initialize() {
       else if (payload.status === 'running') { $('#buildStatus').textContent = payload.stage === 'test' ? '正在测试' : '正在构建'; appendBuildOutput(`\n> ${payload.command}\n`); }
       else if (payload.stage === 'complete') $('#buildStatus').textContent = payload.status === 'passed' ? '已通过' : '未通过';
     });
+    api.onUpdateState(renderUpdateStatus);
     const requestedPage = location.hash.slice(1);
     if (pageMeta[requestedPage]) navigate(requestedPage);
 
@@ -794,6 +886,7 @@ async function initialize() {
     $('#bootScreen')?.setAttribute('aria-hidden', 'true');
 
     const firstSnapshot = await refreshSnapshot({ forceForms: true });
+    await loadUpdateStatus();
     if (firstSnapshot && !firstSnapshot.settings.firstRunCompleted) {
       try {
         navigate('health');
