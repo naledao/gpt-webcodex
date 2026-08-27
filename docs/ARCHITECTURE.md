@@ -51,6 +51,7 @@ Web 页面、REST API 和 SSE 共用服务端密码会话。登录成功后服�
 ```text
 GET    /api/snapshot
 POST   /api/settings
+GET    /api/instructions/preview
 POST   /api/workspace/switch
 POST   /api/workspace/roots
 POST   /api/secrets/runtime-key
@@ -145,7 +146,9 @@ python3 -m coding_tools_mcp \
 
 `PYTHONPATH` 指向仓库内的 Coding Tools MCP 源码和 `python_vendor`。
 
-MCP 初始化时会读取 `${CODEX_HOME:-~/.codex}/AGENTS.md` 和当前工作区根目录的 `AGENTS.md`，并按“全局、项目根、项目子目录”的优先级提供给 GPT；越具体的项目指令优先级越高。全局与项目根指令正文直接进入初始化响应，嵌套指令按任务涉及的目录延迟读取。指令上下文会在 MCP 重启或切换工作区时重新加载。
+MCP 初始化和 `server/discover` 只返回前 512 字符内的精简指令加载路由，不包含本地规则正文。`workspace_context` 与 `agent_workflow` 共用 `ProjectContext.applicable_instructions()`，按“全局、项目根、从浅到深的项目子目录”装配目标路径适用规则；越具体的规则优先级越高，多目标任务通过 `applicable_to` 保留各自作用域。
+
+相关请求会先重新计算规则快照签名。新增、修改或删除规则后，Runtime 会原子替换快照并同时清理工作区快速缓存和编码上下文缓存；缓存键还包含规则 revision。正文分享由 `instructionSharingMode=off|metadata|content` 控制，升级默认使用 `metadata`。Web 管理页通过经过登录保护的 `/api/instructions/preview` 提供本地预览，切换分享模式会加入 Runtime 指纹并重建 MCP。
 
 ## Tunnel
 
@@ -193,10 +196,11 @@ x64 WSL2 也可以执行 `npm run build:native:arm64`。交叉构建器在项目
 
 ## GitHub Release 更新链路
 
-`src/services/updateService.js` 只接受 GitHub latest 稳定 Release，并按 `process.arch` 精确选择固定名称的 x64 或 arm64 ELF。元数据和资产下载复用应用的代理选择；`src/services/httpClient.js` 对 HTTPS 目标实现 HTTP(S) 代理 CONNECT、重定向和流式读取。
+`src/services/githubReleaseResolver.js` 通过 GitHub API 从新到旧分页遍历正式 Release，跳过 Draft、Prerelease、非稳定语义版本以及不含当前架构资产的版本。`src/services/updateService.js` 再按 `process.arch` 精确选择固定名称的 x64 或 arm64 ELF。元数据和资产下载复用应用的代理选择；`src/services/httpClient.js` 对 HTTPS 目标实现 HTTP(S) 代理 CONNECT、重定向和流式读取。
 
 ```text
-Release metadata
+Stable Release pages
+  → newest matching Linux architecture
   → semantic version comparison
   → architecture-specific asset
   → streamed temporary file

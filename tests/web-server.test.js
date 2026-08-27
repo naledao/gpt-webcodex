@@ -33,8 +33,12 @@ test('Web server requires password authentication and protects REST/SSE', async 
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'web-mcp-server-'));
   const oldConfig = process.env.XDG_CONFIG_HOME;
   const oldState = process.env.XDG_STATE_HOME;
+  const oldCodexHome = process.env.CODEX_HOME;
   process.env.XDG_CONFIG_HOME = path.join(temp, 'config');
   process.env.XDG_STATE_HOME = path.join(temp, 'state');
+  process.env.CODEX_HOME = path.join(temp, 'codex');
+  fs.mkdirSync(process.env.CODEX_HOME, { recursive: true });
+  fs.writeFileSync(path.join(process.env.CODEX_HOME, 'AGENTS.md'), 'safe preview sentinel\n', 'utf8');
 
   const { startServer } = require('../web/server');
   const password = 'test-web-password';
@@ -54,6 +58,7 @@ test('Web server requires password authentication and protects REST/SSE', async 
     await instance.close();
     if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = oldConfig;
     if (oldState === undefined) delete process.env.XDG_STATE_HOME; else process.env.XDG_STATE_HOME = oldState;
+    if (oldCodexHome === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = oldCodexHome;
     fs.rmSync(temp, { recursive: true, force: true });
   });
 
@@ -91,10 +96,19 @@ test('Web server requires password authentication and protects REST/SSE', async 
   assert.equal(root.text.includes('manager-window-bar'), false);
 
   const settings = await httpRequest(instance.port, 'POST', '/api/settings', {
-    proxyMode: 'environment', mcpPort: 18765, healthPort: 18081, autoStartServices: false
+    proxyMode: 'environment', mcpPort: 18765, healthPort: 18081, autoStartServices: false,
+    instructionSharingMode: 'content'
   }, authenticated);
   assert.equal(settings.statusCode, 200);
   assert.equal(JSON.parse(settings.text).data.proxyMode, 'environment');
+  assert.equal(JSON.parse(settings.text).data.instructionSharingMode, 'content');
+
+  const preview = await httpRequest(instance.port, 'GET', '/api/instructions/preview', undefined, authenticated);
+  assert.equal(preview.statusCode, 200);
+  const previewPayload = JSON.parse(preview.text).data;
+  assert.equal(previewPayload.sharingMode, 'content');
+  assert.equal(previewPayload.files[0].scope, 'global');
+  assert.equal(previewPayload.files[0].content, 'safe preview sentinel\n');
 
   const secret = 'sk-test-1234567890';
   const secretResponse = await httpRequest(instance.port, 'POST', '/api/secrets/runtime-key', { value: secret }, authenticated);

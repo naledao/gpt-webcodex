@@ -72,6 +72,17 @@ def _render_server_info(payload: dict[str, Any]) -> str:
     )
 
 
+def _render_workspace_context(payload: dict[str, Any]) -> str:
+    raw_instructions = payload.get("instructions")
+    instructions: dict[str, Any] = raw_instructions if isinstance(raw_instructions, dict) else {}
+    revision = instructions.get("revision", "unknown")
+    sharing_mode = instructions.get("sharing_mode", "unknown")
+    return (
+        "Workspace context loaded. Applicable instructions are in "
+        f"structuredContent.instructions; revision {revision}; sharing mode: {sharing_mode}."
+    )
+
+
 def _render_exec_environment(payload: dict[str, Any]) -> str:
     raw_landlock = payload.get("landlock")
     landlock: dict[str, Any] = raw_landlock if isinstance(raw_landlock, dict) else {}
@@ -387,6 +398,7 @@ def _render_image(payload: dict[str, Any]) -> str:
 
 _RENDERERS = {
     "server_info": _render_server_info,
+    "workspace_context": _render_workspace_context,
     "check_exec_environment": _render_exec_environment,
     "get_default_cwd": _render_cwd,
     "set_default_cwd": _render_cwd,

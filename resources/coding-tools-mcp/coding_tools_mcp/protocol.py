@@ -112,6 +112,7 @@ def dispatch_rpc(runtime: Any, request: dict[str, Any]) -> dict[str, Any] | None
                 "protocolVersion": runtime.protocol_version,
                 "serverInfo": {"name": "coding-tools-mcp", "title": "Coding Tools MCP", "version": runtime.server_info_payload().get("version", "")},
                 "capabilities": {"tools": {"listChanged": False}},
+                "instructions": runtime.routing_instructions(),
                 "tools": runtime.list_tools().get("tools", []),
             }
         elif method == "tools/list":

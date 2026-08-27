@@ -1,10 +1,11 @@
 const path = require('node:path');
 
 const DEFAULTS = Object.freeze({
-  configVersion: 6,
+  configVersion: 7,
   workspace: '',
   permissionMode: 'safe',
   toolMode: 'smart',
+  instructionSharingMode: 'metadata',
   mcpPort: 18765,
   healthPort: 18081,
   proxyMode: 'auto',
@@ -54,9 +55,13 @@ function normalize(input = {}) {
   for (const key of Object.keys(DEFAULTS)) {
     if (Object.hasOwn(input, key)) merged[key] = input[key];
   }
-  merged.configVersion = 6;
+  merged.configVersion = 7;
   merged.permissionMode = ['safe', 'trusted'].includes(merged.permissionMode) ? merged.permissionMode : 'safe';
   merged.toolMode = 'smart';
+  merged.instructionSharingMode = ['off', 'metadata', 'content'].includes(merged.instructionSharingMode)
+    ? merged.instructionSharingMode
+    : 'metadata';
+  if (sourceVersion < 7) merged.instructionSharingMode = 'metadata';
   if (input.proxyMode === 'system') merged.proxyMode = 'environment';
   merged.proxyMode = ['auto', 'environment', 'manual', 'direct'].includes(merged.proxyMode) ? merged.proxyMode : 'auto';
   merged.mcpPort = Number.isInteger(Number(merged.mcpPort)) ? Number(merged.mcpPort) : 18765;
@@ -83,6 +88,9 @@ function normalize(input = {}) {
 }
 
 function validateRuntimeSettings(settings) {
+  if (!['off', 'metadata', 'content'].includes(settings.instructionSharingMode)) {
+    throw new Error('AGENTS.md 指令分享模式不受支持。');
+  }
   for (const [label, port] of [['MCP 端口', settings.mcpPort], ['Tunnel 健康端口', settings.healthPort]]) {
     if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error(`${label}必须在 1024-65535 之间。`);
   }

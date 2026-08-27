@@ -100,7 +100,7 @@ npm run build:native:arm64
 
 ```text
 dist/web-mcp-assistant-linux-<arch>
-dist/web-mcp-assistant-v0.1.8-linux-<arch>.tar.gz
+dist/web-mcp-assistant-v0.1.9-linux-<arch>.tar.gz
 dist/SHA256SUMS-native.txt
 ```
 
@@ -150,7 +150,7 @@ ${XDG_CACHE_HOME:-~/.cache}/web-mcp-assistant/native/<build-id>/
 
 ### GitHub Release 更新
 
-原生 ELF 可以在“助手设置 → 版本与更新”中检查稳定版本。更新器从仓库的 latest GitHub Release 读取元数据，根据 `x64` 或 `arm64` 选择对应资产，并在安装前依次校验：
+原生 ELF 可以在“助手设置 → 版本与更新”中检查稳定版本。更新器从 GitHub API 返回的正式 Release 中由新到旧查找，跳过 Draft、Prerelease 以及不含当前 `x64` 或 `arm64` 资产的版本。选中最近的匹配 Release 后，在安装前依次校验：
 
 - Release 声明的文件大小；
 - GitHub 返回的 SHA-256 digest；
@@ -191,13 +191,21 @@ C:\codes\example-project
 
 ## AGENTS.md 指令
 
-GPT 通过 MCP 建立连接时，会按以下顺序接收指令：
+GPT 通过 MCP 工具按以下优先级取得当前目标路径适用的指令：
 
 1. 全局指令：`${CODEX_HOME:-~/.codex}/AGENTS.md`。
 2. 当前工作区根目录的 `AGENTS.md`。
 3. 执行子目录任务时适用的嵌套 `AGENTS.md`。
 
-更具体的项目指令优先于全局指令。全局和项目根目录指令正文会放入 MCP 初始化响应；嵌套指令会先公布路径，在处理对应目录时加载正文。修改指令文件后需要重启 MCP；切换工作区也会重新加载。
+更具体的项目指令优先于全局指令。MCP 初始化和 `server/discover` 只返回精简的加载路由，不包含规则正文；`workspace_context` 和 `agent_workflow` 根据目标路径实时返回同一份规则状态。规则文件新增、修改或删除后会自动刷新并使相关缓存失效，不需要重启 MCP。
+
+正文是否返回由本地设置 `instructionSharingMode` 控制：
+
+- `off`：不返回路径或正文，只报告本地策略关闭。
+- `metadata`：默认值，只返回路径、作用域、版本、截断与告警状态。
+- `content`：仅在 Web 管理页预览并明确确认后，向已连接的模型服务返回适用正文。
+
+全局与单个嵌套文件仍受 16 KiB 上限约束；发生截断时工具结果会明确标记。凭据、令牌和私钥不应保存在 `AGENTS.md` 中。
 
 ## 配置与状态文件
 

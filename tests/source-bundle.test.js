@@ -81,7 +81,7 @@ test('Web API surface and LAN binding are declared', () => {
   assert.match(server, /const DEFAULT_HOST = '0\.0\.0\.0'/);
   for (const endpoint of [
     '/api/auth/login', '/api/auth/logout',
-    '/api/snapshot', '/api/settings', '/api/workspace/switch', '/api/workspace/roots',
+    '/api/snapshot', '/api/settings', '/api/instructions/preview', '/api/workspace/switch', '/api/workspace/roots',
     '/api/secrets/runtime-key', '/api/secrets/mcp-token/regenerate',
     '/api/runtime/start', '/api/runtime/stop', '/api/runtime/restart',
     '/api/logs', '/api/task-state', '/api/task-history',
@@ -98,10 +98,14 @@ test('Web API surface and LAN binding are declared', () => {
 
 test('native release exposes verified self-update and controller update paths', () => {
   const updater = fs.readFileSync(path.join(root, 'src', 'services', 'updateService.js'), 'utf8');
+  const resolver = fs.readFileSync(path.join(root, 'src', 'services', 'githubReleaseResolver.js'), 'utf8');
   const entry = fs.readFileSync(path.join(root, 'native', 'entry.js'), 'utf8');
   const control = fs.readFileSync(path.join(root, 'scripts', 'web-mcp-assistantctl'), 'utf8');
   for (const marker of ['SHA-256', 'validateElf', 'web-mcp-assistant-linux-x64', 'web-mcp-assistant-linux-arm64']) {
     assert.ok(updater.includes(marker), marker);
+  }
+  for (const marker of ['per_page=', 'draft', 'prerelease', 'hasUploadedAsset']) {
+    assert.ok(resolver.includes(marker), marker);
   }
   assert.match(entry, /--self-update/);
   assert.match(entry, /--web-mcp-update-restart-helper/);

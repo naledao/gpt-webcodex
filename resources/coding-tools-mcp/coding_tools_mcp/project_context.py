@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 CONTEXT_FILE_NAMES = frozenset({"AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"})
@@ -33,6 +36,15 @@ MAX_GLOBAL_CONTEXT_BYTES = 16 * 1024
 MAX_CONTEXT_FILE_BYTES = 16 * 1024
 MAX_NESTED_CONTEXT_FILES = 64
 MAX_CONTEXT_SCAN_FILES = 20_000
+MAX_CONTEXT_SCAN_DEPTH = 12
+INSTRUCTION_SHARING_MODES = frozenset({"off", "metadata", "content"})
+ROUTING_INSTRUCTIONS = (
+    "Before answering workspace, machine, or instruction questions, call workspace_context. "
+    "Before coding, call agent_workflow with phase=prepare or run. Treat the returned global, "
+    "project-root, and applicable nested AGENTS.md as authoritative; nested overrides root, and "
+    "root overrides global. Never claim instructions are absent unless the context result reports "
+    "them missing or withheld by policy."
+)
 
 
 def _hidden_process_kwargs() -> dict[str, int]:
@@ -40,7 +52,6 @@ def _hidden_process_kwargs() -> dict[str, int]:
         return {}
     creation_flag = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     return {"creationflags": creation_flag} if creation_flag else {}
-MAX_CONTEXT_SCAN_DEPTH = 12
 
 
 @dataclass(frozen=True)
@@ -48,6 +59,15 @@ class LoadedContextFile:
     path: str
     content: str
     truncated: bool
+    size_bytes: int = 0
+
+
+@dataclass(frozen=True)
+class ContextFileIssue:
+    scope: str
+    path: str
+    status: str
+    message: str
 
 
 @dataclass(frozen=True)
@@ -56,97 +76,327 @@ class ProjectContext:
     root_files: tuple[LoadedContextFile, ...]
     nested_files: tuple[str, ...]
     warnings: tuple[str, ...]
+    nested_context_files: tuple[LoadedContextFile, ...] = ()
+    issues: tuple[ContextFileIssue, ...] = ()
+    workspace_root: str = ""
+    source_signature: str = ""
+
+    @staticmethod
+    def routing_instructions() -> str:
+        """Return stable discovery guidance without embedding local file contents."""
+
+        return ROUTING_INSTRUCTIONS
 
     def server_instructions(self) -> str:
-        sections = [
-            "Use these tools only for coding operations inside the configured workspace.",
-            "The compact tool surface is fixed: workspace_context, agent_workflow, task_control, exec_command, command_control, document_workflow, request_permissions, and view_image. Do not search for legacy tool names.",
-            "Use workspace_context once for simple directory inspection. Use agent_workflow as the primary tool for diagnosis, code changes, tests, builds, releases, and interrupted-task resume.",
-            "For file changes, send one complete change set through agent_workflow instead of assembling many low-level calls. Legacy tool names may be accepted only for cached-client compatibility and should not be selected deliberately.",
-            "For commands expected to exceed 30 seconds, start them with exec_command and return control; continue with command_control so the user can see progress between polls.",
-            "For any task likely to exceed 90 seconds, tell the user the plan before starting. Long agent_workflow execution is forcibly handed back after 90 seconds as a background_operation. If any tool result contains requires_progress_report=true, you MUST send the user a visible progress update before making another tool call. Then poll with task_control action=operation and wait_ms up to 60000. If it is still running, report progress again before polling again. Never stay silent for more than 120 seconds.",
-            "Do not repeat successful inspection, search, read, Git, test, or build work unless files changed or the previous result was incomplete.",
-            "For PDF, DOCX, Markdown, text, resume, report, or document conversion tasks, use document_workflow directly. Inspect source once, then create the complete output once.",
-            "Use task_control to start, pause, stop, resume, clear, inspect persisted task state, or poll a background operation returned by a long workflow.",
-            "Before claiming a build is ready, use agent_workflow with build_release and full verification so artifacts, versions, hashes, and the final report are checked consistently.",
-            "Instruction precedence is global, then project root, then nested project instructions. When instructions conflict, the more specific project instruction wins.",
-        ]
+        """Compatibility alias retained for callers that used the old method name."""
+
+        return self.routing_instructions()
+
+    def applicable_instructions(
+        self,
+        target_paths: list[str] | tuple[str, ...],
+        sharing_mode: str,
+    ) -> dict[str, object]:
+        """Assemble the one authoritative instruction payload for target paths."""
+
+        mode = sharing_mode.strip().lower()
+        if mode not in INSTRUCTION_SHARING_MODES:
+            mode = "metadata"
+        root = Path(self.workspace_root).resolve(strict=False)
+        normalized_targets, target_warnings = _normalize_target_paths(root, target_paths)
+        precedence = ["global", "project_root", "nested"]
+        if mode == "off":
+            revision = _payload_revision({"sharing_mode": "off", "status": "withheld"})
+            return {
+                "revision": revision,
+                "sharing_mode": mode,
+                "requested_paths": [],
+                "precedence": precedence,
+                "files": [],
+                "missing": [],
+                "unavailable": [],
+                "withheld": [{"scope": "all", "reason": "sharing_mode_off"}],
+                "warnings": ["Instruction sharing is disabled by local policy."],
+            }
+
+        ordered: list[tuple[str, LoadedContextFile, list[str]]] = []
         for item in self.global_files:
-            suffix = " [truncated]" if item.truncated else ""
-            sections.append(f"Global instructions from {item.path}{suffix}:\n{item.content}")
+            ordered.append(("global", item, list(normalized_targets)))
         for item in self.root_files:
-            suffix = " [truncated]" if item.truncated else ""
-            sections.append(f"Project instructions from {item.path}{suffix}:\n{item.content}")
-        if self.nested_files:
-            paths = "\n".join(f"- {path}" for path in self.nested_files)
-            sections.append(
-                "Nested project instruction files are available below. Before modifying files under one of their "
-                f"directories, include the applicable instruction file in agent_workflow phase=prepare:\n{paths}"
-            )
-        if self.warnings:
-            sections.append("Project-context warnings:\n" + "\n".join(f"- {warning}" for warning in self.warnings))
-        return "\n\n".join(sections)
+            ordered.append(("project_root", item, list(normalized_targets)))
+
+        nested_by_path = {
+            Path(item.path).resolve(strict=False): item for item in self.nested_context_files
+        }
+        for relative in sorted(self.nested_files, key=lambda value: (len(Path(value).parts), value)):
+            absolute = (root / relative).resolve(strict=False)
+            item = nested_by_path.get(absolute)
+            if item is None:
+                continue
+            scope_dir = absolute.parent
+            applicable_to = [
+                display
+                for display in normalized_targets
+                if _path_is_within(_target_absolute(root, display), scope_dir)
+            ]
+            if applicable_to:
+                ordered.append(("nested", item, applicable_to))
+
+        files: list[dict[str, Any]] = []
+        withheld: list[dict[str, Any]] = []
+        revision_files: list[dict[str, Any]] = []
+        applicable_paths = {str(Path(item.path).resolve(strict=False)) for _, item, _ in ordered}
+        for scope, item, applicable_to in ordered:
+            record: dict[str, Any] = {
+                "scope": scope,
+                "path": item.path,
+                "size_bytes": item.size_bytes,
+                "loaded_bytes": len(item.content.encode("utf-8")),
+                "truncated": item.truncated,
+                "applicable_to": applicable_to,
+                "content_status": "available" if mode == "content" else "withheld",
+            }
+            if mode == "content":
+                record["content"] = item.content
+            else:
+                withheld.append({
+                    "scope": scope,
+                    "path": item.path,
+                    "reason": "metadata_only",
+                })
+            files.append(record)
+            revision_files.append({
+                "scope": scope,
+                "path": item.path,
+                "content": item.content,
+                "truncated": item.truncated,
+                "applicable_to": applicable_to,
+            })
+
+        missing: list[dict[str, str]] = []
+        unavailable: list[dict[str, str]] = []
+        for issue in self.issues:
+            issue_path = str(Path(issue.path).absolute())
+            if issue.scope == "nested" and issue_path not in applicable_paths:
+                scope_dir = Path(issue_path).parent
+                if not any(_path_is_within(_target_absolute(root, item), scope_dir) for item in normalized_targets):
+                    continue
+            record = {
+                "scope": issue.scope,
+                "path": issue.path,
+                "status": issue.status,
+                "message": issue.message,
+            }
+            if issue.status == "missing":
+                missing.append(record)
+            else:
+                unavailable.append(record)
+
+        revision = _payload_revision({
+            "requested_paths": normalized_targets,
+            "files": revision_files,
+            "missing": missing,
+            "unavailable": unavailable,
+        })
+        return {
+            "revision": revision,
+            "sharing_mode": mode,
+            "requested_paths": normalized_targets,
+            "precedence": precedence,
+            "files": files,
+            "missing": missing,
+            "unavailable": unavailable,
+            "withheld": withheld,
+            "warnings": list(dict.fromkeys([*self.warnings, *target_warnings])),
+        }
 
 
 def load_project_context(root: Path) -> ProjectContext:
     resolved_root = root.expanduser().resolve(strict=True)
     global_files: list[LoadedContextFile] = []
     loaded: list[LoadedContextFile] = []
+    nested_loaded: list[LoadedContextFile] = []
     warnings: list[str] = []
+    issues: list[ContextFileIssue] = []
+    global_path = _global_context_path().resolve(strict=False)
     try:
-        global_path = _global_context_path()
-        if global_path.is_file():
+        if global_path.exists() or global_path.is_symlink():
             resolved_global = global_path.resolve(strict=True)
-            with resolved_global.open("rb") as handle:
-                data = handle.read(MAX_GLOBAL_CONTEXT_BYTES + 1)
-            content = _decode_utf8_prefix(data[:MAX_GLOBAL_CONTEXT_BYTES])
-            global_files.append(
-                LoadedContextFile(
-                    str(resolved_global),
-                    content,
-                    len(data) > MAX_GLOBAL_CONTEXT_BYTES,
-                )
-            )
+            if not resolved_global.is_file():
+                raise OSError("path is not a regular file")
+            global_files.append(_load_context_file(resolved_global, MAX_GLOBAL_CONTEXT_BYTES))
+        else:
+            issues.append(ContextFileIssue("global", str(global_path), "missing", "Global AGENTS.md was not found."))
     except UnicodeDecodeError:
-        warnings.append(f"Skipped non-UTF-8 global instruction file: {global_path}")
+        message = f"Skipped non-UTF-8 global instruction file: {global_path}"
+        warnings.append(message)
+        issues.append(ContextFileIssue("global", str(global_path), "unavailable", message))
     except (OSError, RuntimeError) as exc:
-        warnings.append(f"Could not read global {GLOBAL_CONTEXT_FILE_NAME}: {exc}")
+        message = f"Could not read global {GLOBAL_CONTEXT_FILE_NAME}: {exc}"
+        warnings.append(message)
+        issues.append(ContextFileIssue("global", str(global_path), "unavailable", message))
 
     remaining = MAX_ROOT_CONTEXT_BYTES
+    root_candidate_seen = False
     for name in sorted(CONTEXT_FILE_NAMES):
         path = resolved_root / name
-        if not path.is_file():
+        if not (path.exists() or path.is_symlink()):
             continue
+        root_candidate_seen = True
         try:
             resolved = path.resolve(strict=True)
             resolved.relative_to(resolved_root)
+            if not resolved.is_file():
+                raise OSError("path is not a regular file")
         except (OSError, ValueError):
-            warnings.append(f"Skipped unsafe root instruction path: {name}")
+            message = f"Skipped unsafe root instruction path: {name}"
+            warnings.append(message)
+            issues.append(ContextFileIssue("project_root", str(path), "unavailable", message))
             continue
         if remaining <= 0:
-            warnings.append("Root instruction byte limit reached.")
+            message = "Root instruction byte limit reached."
+            warnings.append(message)
+            issues.append(ContextFileIssue("project_root", str(resolved), "unavailable", message))
             break
         budget = min(MAX_CONTEXT_FILE_BYTES, remaining)
         try:
-            with resolved.open("rb") as handle:
-                data = handle.read(budget + 1)
-            content = _decode_utf8_prefix(data[:budget])
+            item = _load_context_file(resolved, budget)
         except UnicodeDecodeError:
-            warnings.append(f"Skipped non-UTF-8 instruction file: {name}")
+            message = f"Skipped non-UTF-8 instruction file: {name}"
+            warnings.append(message)
+            issues.append(ContextFileIssue("project_root", str(resolved), "unavailable", message))
             continue
         except OSError as exc:
-            warnings.append(f"Could not read {name}: {exc}")
+            message = f"Could not read {name}: {exc}"
+            warnings.append(message)
+            issues.append(ContextFileIssue("project_root", str(resolved), "unavailable", message))
             continue
-        truncated = len(data) > budget
-        loaded.append(LoadedContextFile(name, content, truncated))
-        remaining -= len(content.encode("utf-8"))
+        loaded.append(item)
+        remaining -= len(item.content.encode("utf-8"))
 
-    loaded_names = {item.path for item in loaded}
-    nested = [path for path in _discover_context_files(resolved_root, warnings) if path not in loaded_names]
+    if not root_candidate_seen:
+        issues.append(ContextFileIssue(
+            "project_root",
+            str(resolved_root),
+            "missing",
+            "No project-root instruction file was found.",
+        ))
+
+    loaded_names = {Path(item.path).name for item in loaded}
+    nested = [
+        path for path in _discover_context_files(resolved_root, warnings)
+        if not (len(Path(path).parts) == 1 and Path(path).name in loaded_names)
+    ]
     if len(nested) > MAX_NESTED_CONTEXT_FILES:
         nested = nested[:MAX_NESTED_CONTEXT_FILES]
         warnings.append(f"Nested instruction list truncated to {MAX_NESTED_CONTEXT_FILES} files.")
-    return ProjectContext(tuple(global_files), tuple(loaded), tuple(nested), tuple(warnings))
+    safe_nested: list[str] = []
+    for relative in nested:
+        path = resolved_root / relative
+        try:
+            if path.is_symlink():
+                raise OSError("symbolic links are not allowed")
+            resolved = path.resolve(strict=True)
+            resolved.relative_to(resolved_root)
+            if not resolved.is_file():
+                raise OSError("path is not a regular file")
+            item = _load_context_file(resolved, MAX_CONTEXT_FILE_BYTES)
+        except UnicodeDecodeError:
+            message = f"Skipped non-UTF-8 nested instruction file: {relative}"
+            warnings.append(message)
+            issues.append(ContextFileIssue("nested", str(path), "unavailable", message))
+            safe_nested.append(relative)
+            continue
+        except (OSError, ValueError) as exc:
+            message = f"Skipped unsafe or unreadable nested instruction path {relative}: {exc}"
+            warnings.append(message)
+            issues.append(ContextFileIssue("nested", str(path), "unavailable", message))
+            safe_nested.append(relative)
+            continue
+        safe_nested.append(relative)
+        nested_loaded.append(item)
+
+    source_signature = _payload_revision({
+        "workspace": str(resolved_root),
+        "files": [
+            {
+                "path": item.path,
+                "content": item.content,
+                "truncated": item.truncated,
+                "size_bytes": item.size_bytes,
+            }
+            for item in [*global_files, *loaded, *nested_loaded]
+        ],
+        "nested_paths": safe_nested,
+        "issues": [issue.__dict__ for issue in issues],
+        "warnings": warnings,
+    })
+    return ProjectContext(
+        tuple(global_files),
+        tuple(loaded),
+        tuple(safe_nested),
+        tuple(warnings),
+        tuple(nested_loaded),
+        tuple(issues),
+        str(resolved_root),
+        source_signature,
+    )
+
+
+def _load_context_file(path: Path, limit: int) -> LoadedContextFile:
+    with path.open("rb") as handle:
+        data = handle.read(limit + 1)
+    content = _decode_utf8_prefix(data[:limit])
+    try:
+        size_bytes = path.stat().st_size
+    except OSError:
+        size_bytes = len(data)
+    return LoadedContextFile(str(path), content, len(data) > limit, size_bytes)
+
+
+def _payload_revision(value: object) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _path_is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _target_absolute(root: Path, display: str) -> Path:
+    return root if display == "." else (root / display).resolve(strict=False)
+
+
+def _normalize_target_paths(root: Path, target_paths: list[str] | tuple[str, ...]) -> tuple[list[str], list[str]]:
+    normalized: list[str] = []
+    warnings: list[str] = []
+    raw_values = [str(item).strip() for item in target_paths if str(item).strip()]
+    if not raw_values:
+        raw_values = ["."]
+    for raw in raw_values:
+        try:
+            candidate = Path(raw).expanduser()
+            absolute = candidate.resolve(strict=False) if candidate.is_absolute() else (root / candidate).resolve(strict=False)
+            relative = absolute.relative_to(root)
+        except (OSError, ValueError):
+            warnings.append(f"Ignored instruction target outside the workspace: {raw}")
+            continue
+        display = relative.as_posix() if relative.parts else "."
+        if display not in normalized:
+            normalized.append(display)
+    if not normalized:
+        normalized.append(".")
+    return normalized, warnings
 
 
 def _global_context_path() -> Path:
@@ -177,8 +427,6 @@ def _discover_context_files(root: Path, warnings: list[str]) -> list[str]:
             if name not in CONTEXT_FILE_NAMES:
                 continue
             path = current_path / name
-            if path.is_symlink():
-                continue
             discovered.append(path.relative_to(root).as_posix())
     return discovered
 

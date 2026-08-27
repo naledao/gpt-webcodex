@@ -158,6 +158,9 @@ class ToolModeTests(unittest.TestCase):
             self.assertLessEqual(len(tools), 8)
             self.assertEqual(tools, {"workspace_context", "agent_workflow", "task_control", "document_workflow", "exec_command", "command_control", "request_permissions", "view_image"})
             self.assertNotIn("document_extract", tools)
+            workspace_tool = next(item for item in runtime.list_tools()["tools"] if item["name"] == "workspace_context")
+            self.assertTrue(workspace_tool["description"].startswith("Use this when"))
+            self.assertIn("AGENTS.md", workspace_tool["description"])
 
     def test_workspace_context_is_compact_and_cached(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict("os.environ", {"CODING_TOOLS_MCP_TOOL_MODE": "smart"}):
@@ -166,10 +169,13 @@ class ToolModeTests(unittest.TestCase):
             runtime = Runtime(root)
             first = runtime.workspace_context({})
             second = runtime.workspace_context({})
+            full = runtime.workspace_context({"detail": "full"})
             self.assertEqual(first["detail"], "compact")
             self.assertFalse(first["cache"]["hit"])
             self.assertTrue(second["cache"]["hit"])
             self.assertNotIn("events", second["task"])
+            self.assertIn("instructions", first)
+            self.assertEqual(first["instructions"]["revision"], full["instructions"]["revision"])
 
     def test_finished_command_moves_task_to_waiting(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -230,7 +236,7 @@ class ToolModeTests(unittest.TestCase):
                 "objective": "create a tiny Python project",
                 "directories": ["src"],
                 "files": [{"path": "src/main.py", "content": "print('ready')\n"}],
-                "commands": ["python src/main.py"],
+                "commands": ["python3 src/main.py"],
                 "verification": "none",
                 "include_diff": False,
             })
@@ -250,9 +256,49 @@ class ToolModeTests(unittest.TestCase):
 
     def test_server_discover_does_not_require_initialize(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            response = dispatch_rpc(Runtime(Path(temp)), {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+            runtime = Runtime(Path(temp))
+            response = dispatch_rpc(runtime, {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
             self.assertIn("result", response)
             self.assertEqual(response["result"]["serverInfo"]["name"], "coding-tools-mcp")
+            initialized = runtime.initialize()
+            self.assertEqual(response["result"]["instructions"], initialized["instructions"])
+
+    def test_agent_workflow_phases_reuse_the_same_instruction_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as codex_temp, patch.dict(
+            "os.environ",
+            {
+                "CODEX_HOME": codex_temp,
+                "CODING_TOOLS_MCP_INSTRUCTION_SHARING_MODE": "content",
+            },
+        ):
+            root = Path(temp)
+            (root / "AGENTS.md").write_text("shared rule\n", encoding="utf-8")
+            (root / "todo.py").write_text("VALUE = 1\n", encoding="utf-8")
+            runtime = Runtime(root, permission_mode="dangerous")
+            common = {
+                "workflow": "diagnose",
+                "paths": ["todo.py"],
+                "commands": ["/bin/true"],
+                "verification": "none",
+                "include_diff": False,
+            }
+            prepared = runtime.agent_workflow({**common, "phase": "prepare"})
+            run = runtime.agent_workflow({**common, "phase": "run"})
+            runtime.task_state.update({"objective": "resume", "next_step": "inspect todo.py"})
+            resumed = runtime.agent_workflow({**common, "phase": "resume"})
+            runtime.close()
+            prepared_instructions = prepared["context"]["instructions"]
+            run_instructions = run.get("instructions", run["prepared"]["instructions"])
+            resumed_instructions = resumed["context"]["instructions"]
+            revisions = {
+                prepared_instructions["revision"],
+                run_instructions["revision"],
+                resumed_instructions["revision"],
+            }
+            self.assertEqual(len(revisions), 1)
+            self.assertNotIn("instructions", prepared)
+            self.assertNotIn("instructions", resumed)
+            self.assertNotIn("instructions", run)
 
     def test_authorized_root_allows_absolute_read_write_and_blocks_other_paths(self) -> None:
         with tempfile.TemporaryDirectory() as main_temp, tempfile.TemporaryDirectory() as extra_temp, tempfile.TemporaryDirectory() as blocked_temp:

@@ -62,7 +62,7 @@
 - [x] 首次运行按 build ID 释放资源到 XDG cache。
 - [x] 发布包包含 LICENSE、THIRD_PARTY_NOTICES 和 SHA-256 校验文件。
 - [x] arm64 ELF 在隔离 XDG 目录中完成登录、静态页面和 snapshot 烟雾测试。
-- [x] 更新器按 x64/arm64 选择固定 Release 资产，并校验大小、SHA-256 和 ELF machine。
+- [x] 更新器从新到旧遍历稳定 Release，按 x64/arm64 选择最近的固定资产，并校验大小、SHA-256 和 ELF machine。
 - [x] GitHub 元数据与资产下载支持应用解析出的 HTTP(S) 代理。
 - [x] 源码模式和不可写安装目录不会执行自替换。
 - [x] 原生更新保留 `.previous`，通过新 ELF 重启助手接管旧端口并支持启动失败回滚。
@@ -76,7 +76,7 @@
 
 - [x] `npm install --ignore-scripts` 通过。
 - [x] `npm run check` 通过。
-- [x] Linux Web 测试 15/15 通过。
+- [x] Linux Web 测试 25/25 通过。
 - [x] REST/SSE 测试通过。
 - [x] XDG 路径测试通过。
 - [x] 0600/0700 权限逻辑测试通过。

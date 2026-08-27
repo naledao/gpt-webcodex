@@ -75,7 +75,7 @@ from .protocol import (
     response_id,
     validate_rpc_envelope,
 )
-from .project_context import ProjectContext, load_project_context
+from .project_context import INSTRUCTION_SHARING_MODES, ProjectContext, load_project_context
 from .build_verify import verify_build as run_build_verification
 from .document_tools import create_docx, create_text_document, convert_document, extract_document
 from .task_state import TaskStateStore
@@ -599,7 +599,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "workspace_context": ToolSpec(
         title="Inspect workspace",
-        description="Preferred read-only tool when the user asks what is in the current working directory or wants a quick project overview. Returns the active workspace, default directory, project type, root entries, Git status, and task summary in one call; do not use exec_command merely to list files.",
+        description="Use this when the user asks about the current workspace, directory, Git state, machine capabilities, AGENTS.md, or applicable instructions. It returns the authoritative live global, project-root, and applicable nested instruction state with workspace metadata. Call it before claiming an instruction file is absent; do not use exec_command merely to inspect this context.",
         read_only=True,
         idempotent=True,
     ),
@@ -1479,11 +1479,17 @@ class Runtime:
         self.patch_baselines: dict[str, str | None] = {}
         self.patch_lock = threading.Lock()
         self.patch_committer = AtomicPatchCommitter()
-        # ProjectContext is frozen and derived only from the workspace tree, so
-        # per-session HTTP runtimes reuse the server's copy instead of re-running
-        # discovery (git ls-files / directory walk) on every connect.
+        self.project_context_lock = threading.RLock()
         self.project_context: ProjectContext = (
             project_context if project_context is not None else load_project_context(self.workspace.root)
+        )
+        instruction_sharing_mode = os.environ.get(
+            f"{ENV_PREFIX}_INSTRUCTION_SHARING_MODE", "metadata"
+        ).strip().lower()
+        self.instruction_sharing_mode = (
+            instruction_sharing_mode
+            if instruction_sharing_mode in INSTRUCTION_SHARING_MODES
+            else "metadata"
         )
         self.request_sessions: dict[str | int, str] = {}
         self.request_sessions_lock = threading.Lock()
@@ -1564,7 +1570,8 @@ class Runtime:
             self.default_cwd = self.workspace.root
             self._set_runtime_dir(runtime_dir_for_workspace(self.workspace.root, self.server_instance_id))
             self.fallback_runtime_dir = fallback_runtime_dir_for_workspace(self.workspace.root, self.server_instance_id)
-            self.project_context = load_project_context(self.workspace.root)
+            with self.project_context_lock:
+                self.project_context = load_project_context(self.workspace.root)
             self.task_state = TaskStateStore(self.workspace.root)
             self.performance_trace = PerformanceTraceStore(self.workspace.root)
             with self.patch_lock:
@@ -1645,6 +1652,7 @@ class Runtime:
         return is_relative_to(resolved, self.runtime_dir)
 
     def initialize(self, client_info: dict[str, Any] | None = None) -> dict[str, Any]:
+        self.refresh_project_context_if_changed()
         self.telemetry.record_session_start(client_info, self.protocol_version)
         return {
             "protocolVersion": self.protocol_version,
@@ -1654,8 +1662,33 @@ class Runtime:
                 "title": SERVER_TITLE,
                 "version": __version__,
             },
-            "instructions": self.project_context.server_instructions(),
+            "instructions": ProjectContext.routing_instructions(),
         }
+
+    def routing_instructions(self) -> str:
+        self.refresh_project_context_if_changed()
+        return ProjectContext.routing_instructions()
+
+    def refresh_project_context_if_changed(self, *, force: bool = False) -> bool:
+        """Reload instruction files and invalidate both workspace caches atomically."""
+
+        with self.project_context_lock:
+            refreshed = load_project_context(self.workspace.root)
+            changed = force or refreshed.source_signature != self.project_context.source_signature
+            if not changed:
+                return False
+            self.project_context = refreshed
+            self._invalidate_fast_cache()
+            self._clear_context_bundle_cache()
+            return True
+
+    def applicable_instructions(self, target_paths: list[str]) -> dict[str, object]:
+        self.refresh_project_context_if_changed()
+        with self.project_context_lock:
+            return self.project_context.applicable_instructions(
+                target_paths,
+                self.instruction_sharing_mode,
+            )
 
     def list_tools(self) -> dict[str, Any]:
         return self._tools_list_payload
@@ -1699,9 +1732,23 @@ class Runtime:
         return bool(landlock.get("available")) and self.landlock_enabled()
 
     def server_info_payload(self) -> dict[str, Any]:
+        self.refresh_project_context_if_changed()
         tools = self.exposed_tool_names()
         landlock = landlock_status_payload()
         landlock["enabled"] = self._landlock_enforced(landlock)
+        project_context = {
+            "global_instruction_files": [item.path for item in self.project_context.global_files],
+            "root_instruction_files": [item.path for item in self.project_context.root_files],
+            "nested_instruction_files": list(self.project_context.nested_files),
+            "warnings": list(self.project_context.warnings),
+        }
+        if self.instruction_sharing_mode == "off":
+            project_context = {
+                "global_instruction_files": [],
+                "root_instruction_files": [],
+                "nested_instruction_files": [],
+                "warnings": ["Instruction sharing is disabled by local policy."],
+            }
         return {
             "server": SERVER_NAME,
             "title": SERVER_TITLE,
@@ -1724,12 +1771,8 @@ class Runtime:
             "shell_env_include_only": list(self.shell_env_policy.include_only),
             "shell_env_exclude": list(self.shell_env_policy.exclude),
             "endpoint_path": MCP_ENDPOINT_PATH,
-            "project_context": {
-                "global_instruction_files": [item.path for item in self.project_context.global_files],
-                "root_instruction_files": [item.path for item in self.project_context.root_files],
-                "nested_instruction_files": list(self.project_context.nested_files),
-                "warnings": list(self.project_context.warnings),
-            },
+            "instruction_sharing_mode": self.instruction_sharing_mode,
+            "project_context": project_context,
             "tools": tools,
             "tool_count": len(tools),
         }
@@ -1954,7 +1997,14 @@ class Runtime:
             except OSError:
                 fingerprints.append((str(path), -1, -1))
         raw = json.dumps(
-            {"workspace": str(self.workspace.root), "tool": tool, "args": args, "files": fingerprints},
+            {
+                "workspace": str(self.workspace.root),
+                "tool": tool,
+                "args": args,
+                "files": fingerprints,
+                "instruction_revision": self.project_context.source_signature,
+                "instruction_sharing_mode": self.instruction_sharing_mode,
+            },
             ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
         )
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -2009,21 +2059,39 @@ class Runtime:
 
         threading.Thread(target=preheat, name="coding-tools-preheat", daemon=True).start()
 
+    def _workspace_context_inspection_path(self, target_path: str) -> str:
+        if target_path in {"", "."}:
+            return "."
+        try:
+            resolved = self.resolve_existing(target_path)
+            inspection = resolved.path if resolved.path.is_dir() else resolved.path.parent
+        except ToolFailure as exc:
+            if exc.code != "NOT_FOUND":
+                raise
+            pending = self.resolve_for_write(target_path).path
+            inspection = pending.parent
+            while not inspection.exists() and inspection != self.workspace.root:
+                inspection = inspection.parent
+        return normalize_rel_display(inspection, self.workspace.root)
+
     def workspace_context(self, args: dict[str, Any]) -> dict[str, Any]:
+        self.refresh_project_context_if_changed()
         detail = str(args.get("detail", "compact")).lower()
-        cache_args = {"path": str(args.get("path", ".")), "max_entries": int(args.get("max_entries", 40)), "detail": detail}
+        target_path = str(args.get("path", "."))
+        inspection_path = self._workspace_context_inspection_path(target_path)
+        cache_args = {"path": target_path, "max_entries": int(args.get("max_entries", 40)), "detail": detail}
         cache_key = self._fast_cache_key("workspace_context", cache_args)
         cached = self._fast_cache_get(cache_key, 30)
         if cached is not None:
             return cached
         root_entries = self.list_dir({
-            "path": str(args.get("path", ".")),
+            "path": inspection_path,
             "max_entries": min(int(args.get("max_entries", 40)), 500),
             "max_depth": 1,
             "recursive": False,
         })
         try:
-            git = self.git_status({"path": str(args.get("path", ".")), "max_entries": 100})
+            git = self.git_status({"path": inspection_path, "max_entries": 100})
         except Exception as exc:  # non-Git folders remain valid workspaces
             git = {"is_repo": False, "warnings": [str(exc)]}
         project = {"type": "unknown", "name": self.workspace.root.name, "version": ""}
@@ -2056,6 +2124,8 @@ class Runtime:
         payload = {
             "workspace": str(self.workspace.root),
             "default_cwd": self.default_cwd_display(),
+            "context_path": target_path,
+            "inspection_path": inspection_path,
             "project": project,
             "entries": root_entries.get("entries", []),
             "entries_truncated": root_entries.get("truncated", False),
@@ -2063,6 +2133,7 @@ class Runtime:
             "task": task,
             "tool_mode": self.tool_mode,
             "detail": detail,
+            "instructions": self.applicable_instructions([target_path]),
             "cache": {"hit": False, "age_ms": 0},
         }
         self._fast_cache_put(cache_key, payload)
@@ -2071,7 +2142,12 @@ class Runtime:
     def _context_bundle_cache_key(self, args: dict[str, Any]) -> str:
         normalized = {key: value for key, value in args.items() if key != "force_refresh"}
         encoded = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(f"{self.workspace.root}\n{encoded}".encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            (
+                f"{self.workspace.root}\n{self.project_context.source_signature}\n"
+                f"{self.instruction_sharing_mode}\n{encoded}"
+            ).encode("utf-8")
+        ).hexdigest()
 
     def _clear_context_bundle_cache(self) -> None:
         workspace_prefix = hashlib.sha256(f"{self.workspace.root}\n".encode("utf-8")).hexdigest()[:12]
@@ -2082,6 +2158,7 @@ class Runtime:
 
     def prepare_coding_context(self, args: dict[str, Any]) -> dict[str, Any]:
         """Build the context a coding model normally gathers through many round trips."""
+        self.refresh_project_context_if_changed()
         cache_key = self._context_bundle_cache_key(args)
         namespaced_key = hashlib.sha256(f"{self.workspace.root}\n".encode("utf-8")).hexdigest()[:12] + cache_key
         now = time.time()
@@ -2098,24 +2175,15 @@ class Runtime:
         raw_queries = args.get("queries", [])
         raw_paths = args.get("paths", [])
         queries = list(dict.fromkeys(str(item).strip() for item in raw_queries if str(item).strip()))[:12]
-        requested_paths = list(dict.fromkeys(str(item).strip() for item in raw_paths if str(item).strip()))[:40]
+        base_path = str(args.get("path", ".")).strip() or "."
+        requested_paths = list(dict.fromkeys(
+            str(item).strip() for item in raw_paths if str(item).strip()
+        ))[:40]
         max_files = min(max(int(args.get("max_files", 12)), 1), 30)
         max_total_bytes = min(max(int(args.get("max_total_bytes", 262144)), 4096), 1048576)
         max_matches = min(max(int(args.get("max_matches_per_query", 20)), 1), 100)
 
-        workspace = self.workspace_context({"path": str(args.get("path", ".")), "max_entries": int(args.get("max_entries", 120))})
-        instructions = {
-            "global": [
-                {"path": item.path, "content": item.content, "truncated": item.truncated}
-                for item in self.project_context.global_files
-            ],
-            "root": [
-                {"path": item.path, "content": item.content, "truncated": item.truncated}
-                for item in self.project_context.root_files
-            ],
-            "nested_paths": list(self.project_context.nested_files),
-            "warnings": list(self.project_context.warnings),
-        }
+        workspace = self.workspace_context({"path": base_path, "max_entries": int(args.get("max_entries", 120))})
         searches: list[dict[str, Any]] = []
         path_scores: dict[str, int] = {path: 1_000_000 - index for index, path in enumerate(requested_paths)}
 
@@ -2153,6 +2221,8 @@ class Runtime:
                     path_scores[path] = path_scores.get(path, 0) + 1
 
         ranked_paths = sorted(path_scores, key=lambda item: (-path_scores[item], item))[:max_files]
+        instruction_targets = list(dict.fromkeys([base_path, *requested_paths, *ranked_paths]))
+        instructions = self.applicable_instructions(instruction_targets)
         files: list[dict[str, Any]] = []
         total_bytes = 0
         for path in ranked_paths:
@@ -2376,8 +2446,61 @@ class Runtime:
         sections.append("*** End Patch")
         return "\n".join(sections)
 
+    def _workflow_instruction_paths(
+        self,
+        args: dict[str, Any],
+        *,
+        selected_paths: list[str] | None = None,
+    ) -> list[str]:
+        """Collect paths a workflow is about to inspect, create, modify, test, or build."""
+
+        candidates: list[str] = []
+
+        def add(value: object) -> None:
+            text = str(value or "").strip()
+            if text and text not in candidates:
+                candidates.append(text)
+
+        add(args.get("path", "."))
+        add(args.get("workdir", ""))
+        add(args.get("source", ""))
+        add(args.get("target", ""))
+        for key in ("paths", "directories", "artifact_paths"):
+            values = args.get(key, [])
+            if isinstance(values, list):
+                for value in values:
+                    add(value)
+        for value in selected_paths or []:
+            add(value)
+        files = args.get("files", [])
+        if isinstance(files, list):
+            for item in files:
+                if isinstance(item, dict):
+                    add(item.get("path", ""))
+        document = args.get("document")
+        if isinstance(document, dict):
+            add(document.get("path", ""))
+            add(document.get("source", ""))
+            add(document.get("target", ""))
+            values = document.get("paths", [])
+            if isinstance(values, list):
+                for value in values:
+                    add(value)
+        patch_values = list(args.get("patches", [])) if isinstance(args.get("patches"), list) else []
+        if str(args.get("patch", "")).strip():
+            patch_values.append(str(args["patch"]))
+        for patch_value in patch_values:
+            for match in re.finditer(
+                r"^\*\*\* (?:Add|Update|Delete|Move to) File: (.+?)\s*$",
+                str(patch_value),
+                flags=re.MULTILINE,
+            ):
+                add(match.group(1))
+        return candidates or ["."]
+
     def agent_workflow(self, args: dict[str, Any]) -> dict[str, Any]:
         """Collapse the common multi-turn agent loop into one explicit workflow boundary."""
+        self.refresh_project_context_if_changed()
         workflow = str(args.get("workflow", "custom")).lower()
         phase = str(args.get("phase", "prepare")).lower()
         dedup_key = self._fast_cache_key("agent_workflow_execute", args)
@@ -2417,8 +2540,15 @@ class Runtime:
             document_args = dict(args.get("document", {}))
             if not document_args:
                 document_args = {key: args[key] for key in ("action", "path", "paths", "source", "target", "title", "content", "overwrite", "max_chars") if key in args}
+            instructions = self.applicable_instructions(self._workflow_instruction_paths(args))
             result = self.document_workflow(document_args)
-            return {"workflow": workflow, "phase": phase, "result": result, "task": self.task_state.get()}
+            return {
+                "workflow": workflow,
+                "phase": phase,
+                "result": result,
+                "instructions": instructions,
+                "task": self.task_state.get(),
+            }
 
         should_prepare = phase in {"prepare", "run"}
         should_execute = phase in {"execute", "run"}
@@ -2447,6 +2577,14 @@ class Runtime:
                 "recommended_next_action": "Reason once over this bundle, then call agent_workflow phase=execute with the complete change set and verification plan.",
             }
 
+        selected_paths = (
+            [str(item) for item in prepared.get("selected_paths", [])]
+            if isinstance(prepared, dict) and isinstance(prepared.get("selected_paths"), list)
+            else []
+        )
+        instruction_paths = self._workflow_instruction_paths(args, selected_paths=selected_paths)
+        self.refresh_project_context_if_changed()
+        instructions = self.applicable_instructions(instruction_paths)
         directories = [str(item).strip() for item in args.get("directories", []) if str(item).strip()]
         directory_result = None
         if directories:
@@ -2492,6 +2630,9 @@ class Runtime:
             "execution": execution,
             "task": self.task_state.get(),
         }
+        prepared_instructions = prepared.get("instructions") if isinstance(prepared, dict) else None
+        if not isinstance(prepared_instructions, dict) or prepared_instructions.get("revision") != instructions.get("revision"):
+            result["instructions"] = instructions
         if execution.get("ok"):
             self._fast_cache_put(dedup_key, result)
         return result
@@ -5869,9 +6010,9 @@ def input_schemas() -> dict[str, dict[str, Any]]:
             "document": {"type": "object", "additionalProperties": True, "description": "Arguments forwarded to document_workflow when workflow=document."},
         }),
         "workspace_context": object_schema({
-            "path": {**string, "default": "."},
+            "path": {**string, "default": ".", "description": "Target file or directory whose applicable instruction scope must be loaded. Missing future file paths are allowed; workspace entries come from the nearest existing directory."},
             "max_entries": {**integer, "minimum": 1, "maximum": 500, "default": 40},
-            "detail": {**string, "enum": ["compact", "full"], "default": "compact", "description": "compact returns only the project, root entries, Git summary and task summary; full includes complete Git and task state."},
+            "detail": {**string, "enum": ["compact", "full"], "default": "compact", "description": "compact returns project, entries, Git/task summaries, and complete instruction state; full expands Git and task state but uses the same instruction payload."},
         }),
         "prepare_coding_context": object_schema({
             "objective": string,

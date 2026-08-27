@@ -177,6 +177,7 @@ function navigate(page) {
   if (page === 'task') loadTaskState();
   if (page === 'build') inspectBuild();
   if (page === 'health') inspectHealth();
+  if (page === 'settings') loadInstructionPreview();
 }
 
 function textOr(value, fallback = '—') { return String(value ?? '').trim() || fallback; }
@@ -303,6 +304,7 @@ function applyFormValues(snapshot, force = false) {
   $('#workspacePathInput').value = settings.workspace || '';
   $('#autoStartToggle').checked = settings.autoStartServices;
   $('#progressReportSelect').value = String(settings.progressReportSeconds || 90);
+  $('#instructionSharingSelect').value = settings.instructionSharingMode || 'metadata';
   if ($('#toolModeSelect')) $('#toolModeSelect').value = 'smart';
   $$('input[name="permission"]').forEach((input) => {
     input.checked = input.value === settings.permissionMode;
@@ -385,6 +387,68 @@ function renderAuthorizedRoots(roots) {
     row.append(code, remove);
     container.appendChild(row);
   });
+}
+
+function formatBytes(value) {
+  const bytes = Number(value) || 0;
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KiB`;
+}
+
+function renderInstructionPreview(preview) {
+  const container = $('#instructionPreview');
+  if (!container) return;
+  container.replaceChildren();
+  const files = Array.isArray(preview?.files) ? preview.files : [];
+  const scopeLabels = { global: '全局', project_root: '项目根', nested: '嵌套' };
+  for (const file of files) {
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    const meta = document.createElement('span');
+    summary.append(`${scopeLabels[file.scope] || file.scope} · ${file.path} `);
+    meta.textContent = `(${formatBytes(file.sizeBytes)}${file.truncated ? ' · 已截断' : ''})`;
+    summary.append(meta);
+    const content = document.createElement('pre');
+    content.textContent = file.content || '（没有可预览正文）';
+    details.append(summary, content);
+    container.appendChild(details);
+  }
+  for (const warning of Array.isArray(preview?.warnings) ? preview.warnings : []) {
+    const issue = document.createElement('div');
+    issue.className = 'instruction-issue';
+    issue.textContent = `${warning.path || warning.scope || '规则文件'}：${warning.message || warning.status || '不可读取'}`;
+    container.appendChild(issue);
+  }
+  if (!container.children.length) {
+    const empty = document.createElement('span');
+    empty.className = 'task-muted';
+    empty.textContent = '当前没有发现可预览的规则文件。';
+    container.appendChild(empty);
+  }
+}
+
+async function loadInstructionPreview() {
+  const container = $('#instructionPreview');
+  if (!container) return;
+  try { renderInstructionPreview(unwrap(await api.instructionPreview())); }
+  catch (error) { container.textContent = `本地预览读取失败：${error.message}`; }
+}
+
+async function saveInstructionSharingMode() {
+  const mode = $('#instructionSharingSelect').value;
+  if (mode === 'content' && !confirm('content 模式会把目标路径适用的 AGENTS.md 正文发送给已连接的模型服务。确认已经检查本地预览并授权发送吗？')) {
+    $('#instructionSharingSelect').value = state.snapshot?.settings?.instructionSharingMode || 'metadata';
+    return;
+  }
+  const wasRunning = Boolean(state.snapshot?.status.runtimeRunning);
+  const saved = unwrap(await api.saveSettings({ instructionSharingMode: mode }));
+  if (state.snapshot) state.snapshot.settings = saved;
+  if (wasRunning) {
+    toast('指令分享模式已保存', '正在重建 MCP 以应用新的安全边界。');
+    await runRuntime('restart');
+  } else {
+    toast('指令分享模式已保存', '下次启动 MCP 时生效。');
+  }
 }
 
 async function addAuthorizedRoot() {
@@ -769,6 +833,11 @@ function bindEvents() {
     try { unwrap(await api.regenerateMcpToken()); toast('认证 Token 已重新生成', '重新部署后生效。'); }
     catch (error) { toast('生成失败', error.message, 'error'); }
   });
+  $('#refreshInstructionPreview').addEventListener('click', loadInstructionPreview);
+  $('#saveInstructionSharing').addEventListener('click', async () => {
+    try { await saveInstructionSharingMode(); }
+    catch (error) { toast('指令分享模式保存失败', error.message, 'error'); }
+  });
   $('#logoutButton').addEventListener('click', async () => {
     try { await api.logout(); }
     finally { location.replace('/login'); }
@@ -880,7 +949,6 @@ async function initialize() {
 }
 
 initialize();
-
 
 
 

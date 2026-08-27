@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const os = require('node:os');
 
 const { SettingsStore } = require('../src/services/settingsStore');
 const { SecretStore } = require('../src/services/secretStore');
@@ -23,6 +24,16 @@ const DEFAULT_WEB_PASSWORD_HASH = '96326fd1778346db3a14d0758c70c12b98a171b7e2ce5
 const MAX_BODY_BYTES = 1024 * 1024;
 const SESSION_COOKIE_NAME = 'web_mcp_session';
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const CONTEXT_FILE_NAMES = new Set(['AGENTS.md', 'AGENTS.MD', 'CLAUDE.md', 'CLAUDE.MD']);
+const SKIPPED_CONTEXT_DIRS = new Set([
+  '.git', '.hg', '.svn', '.reference', 'node_modules', 'target', 'dist', 'build',
+  '.venv', 'venv', '.tox', '.mypy_cache', '.pytest_cache', '.ruff_cache', '__pycache__'
+]);
+const MAX_INSTRUCTION_BYTES = 16 * 1024;
+const MAX_ROOT_INSTRUCTION_BYTES = 32 * 1024;
+const MAX_NESTED_INSTRUCTION_FILES = 64;
+const MAX_CONTEXT_SCAN_FILES = 20_000;
+const MAX_CONTEXT_SCAN_DEPTH = 12;
 const RENDERER_ROOT = process.env.WEB_MCP_RENDERER_ROOT
   ? path.resolve(process.env.WEB_MCP_RENDERER_ROOT)
   : path.resolve(__dirname, '..', 'renderer');
@@ -203,6 +214,115 @@ async function clearPerformance(settings) {
   return true;
 }
 
+function decodeUtf8Prefix(buffer) {
+  for (let trim = 0; trim <= Math.min(3, buffer.length); trim += 1) {
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(
+        trim ? buffer.subarray(0, buffer.length - trim) : buffer
+      );
+    }
+    catch { /* a byte limit may split the final UTF-8 code point */ }
+  }
+  throw new Error('文件不是有效 UTF-8 文本。');
+}
+
+function readInstructionPreview(file, scope, limit, applicableRoot = '') {
+  const absolute = path.resolve(file);
+  if (applicableRoot) {
+    const resolvedRoot = fs.realpathSync(applicableRoot);
+    const resolvedFile = fs.realpathSync(absolute);
+    const relative = path.relative(resolvedRoot, resolvedFile);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('路径超出工作区。');
+  }
+  const stat = fs.statSync(absolute);
+  if (!stat.isFile()) throw new Error('路径不是普通文件。');
+  const handle = fs.openSync(absolute, 'r');
+  try {
+    const buffer = Buffer.alloc(Math.min(stat.size, limit + 1));
+    const bytesRead = fs.readSync(handle, buffer, 0, buffer.length, 0);
+    const truncated = stat.size > limit;
+    const content = decodeUtf8Prefix(buffer.subarray(0, Math.min(bytesRead, limit)));
+    return {
+      scope,
+      path: fs.realpathSync(absolute),
+      sizeBytes: stat.size,
+      loadedBytes: Buffer.byteLength(content),
+      truncated,
+      status: 'loaded',
+      content
+    };
+  } finally {
+    fs.closeSync(handle);
+  }
+}
+
+function instructionPreview(settingsStore) {
+  const current = settingsStore.load();
+  const workspace = String(current.workspace || '').trim();
+  const result = {
+    sharingMode: current.instructionSharingMode || 'metadata',
+    workspace,
+    files: [],
+    warnings: []
+  };
+  const codexHome = String(process.env.CODEX_HOME || '').trim() || path.join(os.homedir(), '.codex');
+  const globalFile = path.join(codexHome, 'AGENTS.md');
+  if (fs.existsSync(globalFile)) {
+    try { result.files.push(readInstructionPreview(globalFile, 'global', MAX_INSTRUCTION_BYTES)); }
+    catch (error) { result.warnings.push({ scope: 'global', path: globalFile, status: 'unavailable', message: safeMessage(error) }); }
+  }
+  if (!workspace || !fs.existsSync(workspace) || !fs.statSync(workspace).isDirectory()) return result;
+
+  const resolvedRoot = fs.realpathSync(workspace);
+  let rootBudget = MAX_ROOT_INSTRUCTION_BYTES;
+  for (const name of [...CONTEXT_FILE_NAMES].sort()) {
+    const file = path.join(resolvedRoot, name);
+    if (!fs.existsSync(file)) continue;
+    const budget = Math.min(MAX_INSTRUCTION_BYTES, rootBudget);
+    if (budget <= 0) {
+      result.warnings.push({ scope: 'project_root', path: file, status: 'unavailable', message: '项目根规则总字节上限已达到。' });
+      continue;
+    }
+    try {
+      const item = readInstructionPreview(file, 'project_root', budget, resolvedRoot);
+      result.files.push(item);
+      rootBudget -= item.loadedBytes;
+    } catch (error) {
+      result.warnings.push({ scope: 'project_root', path: file, status: 'unavailable', message: safeMessage(error) });
+    }
+  }
+
+  let scanned = 0;
+  const nested = [];
+  const visit = (directory, depth) => {
+    if (depth > MAX_CONTEXT_SCAN_DEPTH || nested.length > MAX_NESTED_INSTRUCTION_FILES || scanned > MAX_CONTEXT_SCAN_FILES) return;
+    let entries;
+    try { entries = fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)); }
+    catch (error) { result.warnings.push({ scope: 'scan', path: directory, status: 'unavailable', message: safeMessage(error) }); return; }
+    for (const entry of entries) {
+      scanned += 1;
+      if (scanned > MAX_CONTEXT_SCAN_FILES) return;
+      const candidate = path.join(directory, entry.name);
+      if (entry.isDirectory() && !SKIPPED_CONTEXT_DIRS.has(entry.name)) visit(candidate, depth + 1);
+      if (!CONTEXT_FILE_NAMES.has(entry.name) || directory === resolvedRoot) continue;
+      nested.push(candidate);
+      if (nested.length > MAX_NESTED_INSTRUCTION_FILES) return;
+    }
+  };
+  visit(resolvedRoot, 0);
+  if (scanned > MAX_CONTEXT_SCAN_FILES) result.warnings.push({ scope: 'scan', path: resolvedRoot, status: 'truncated', message: `扫描在 ${MAX_CONTEXT_SCAN_FILES} 个文件后停止。` });
+  if (nested.length > MAX_NESTED_INSTRUCTION_FILES) result.warnings.push({ scope: 'nested', path: resolvedRoot, status: 'truncated', message: `嵌套规则列表已限制为 ${MAX_NESTED_INSTRUCTION_FILES} 个文件。` });
+  for (const file of nested.slice(0, MAX_NESTED_INSTRUCTION_FILES)) {
+    try {
+      if (fs.lstatSync(file).isSymbolicLink()) throw new Error('嵌套规则不允许使用符号链接。');
+      result.files.push(readInstructionPreview(file, 'nested', MAX_INSTRUCTION_BYTES, resolvedRoot));
+    } catch (error) {
+      result.warnings.push({ scope: 'nested', path: file, status: 'unavailable', message: safeMessage(error) });
+    }
+  }
+  return result;
+}
+
 function createApplication(options = {}) {
   const configuredPassword = options.authPassword;
   if (configuredPassword !== undefined && !String(configuredPassword)) throw new Error('Web 管理密码不能为空。');
@@ -297,12 +417,13 @@ function createApplication(options = {}) {
   async function handleApi(request, response, pathname) {
     const method = request.method || 'GET';
     if (method === 'GET' && pathname === '/api/snapshot') return sendSuccess(response, await orchestrator.snapshot());
+    if (method === 'GET' && pathname === '/api/instructions/preview') return sendSuccess(response, instructionPreview(settings));
     if (method === 'POST' && pathname === '/api/settings') {
       const body = await readJsonBody(request);
       const allowed = new Set([
         'permissionMode', 'toolMode', 'mcpPort', 'healthPort', 'proxyMode', 'proxyUrl',
         'tunnelId', 'tunnelProfile', 'autoStartServices', 'progressReportSeconds',
-        'theme', 'guideProgress', 'firstRunCompleted'
+        'theme', 'guideProgress', 'firstRunCompleted', 'instructionSharingMode'
       ]);
       const clean = Object.fromEntries(Object.entries(body || {}).filter(([key]) => allowed.has(key)));
       const candidate = normalize({ ...settings.load(), ...clean });

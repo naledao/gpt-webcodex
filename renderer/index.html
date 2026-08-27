@@ -212,6 +212,12 @@
             <article class="panel settings-list"><div class="panel-title"><h3>外观与运行行为</h3></div><label class="setting-row"><span><b>界面主题</b><small>管理中心默认使用浅色风格。</small></span><select id="themeSelect"><option value="light">浅色</option><option value="dark">深色</option></select></label><div class="setting-row"><span><b>智能工具模式</b><small>固定使用精简后的聚合工具。</small></span><span class="security-chip">自动</span></div><label class="setting-row"><span><b>Web 服务启动时自动启动 MCP</b><small>配置完整时自动启动 MCP 与 Tunnel。</small></span><input id="autoStartToggle" class="toggle" type="checkbox"></label><label class="setting-row"><span><b>长任务主动汇报间隔</b><small>超过该时间仍未完成时，工具会把控制权交还给 ChatGPT 先汇报进度。</small></span><select id="progressReportSelect"><option value="60">60 秒</option><option value="90">90 秒</option><option value="120">2 分钟</option><option value="180">3 分钟</option></select></label></article>
             <article class="panel settings-list"><div class="panel-title"><h3>安全与维护</h3></div><div class="setting-row"><span><b>Web 管理登录</b><small>退出后需要重新输入访问密码。</small></span><button class="secondary-button" id="logoutButton">退出登录</button></div><div class="setting-row"><span><b>Runtime API Key</b><small id="settingsKeyState">尚未保存</small></span><button class="danger-button" id="removeRuntimeKey">删除密钥</button></div><div class="setting-row"><span><b>MCP 本地认证 Token</b><small>重新生成后需要重新启动服务。</small></span><button class="secondary-button" id="regenerateToken">重新生成</button></div><div class="setting-row"><span><b>匿名遥测</b><small>Coding Tools MCP 已由本助手设置为关闭。</small></span><span class="security-chip">已关闭</span></div></article>
           </div>
+          <article class="panel settings-list instruction-sharing-panel">
+            <div class="panel-title"><div><h3>AGENTS.md 指令分享</h3><p>初始化只发送短路由；适用规则由工作区工具实时读取。</p></div><button class="secondary-button" id="refreshInstructionPreview">刷新本地预览</button></div>
+            <div class="setting-row"><span><b>分享模式</b><small><code>metadata</code> 只发送路径和状态；<code>content</code> 会把适用正文发送给已连接的模型服务。</small></span><div class="inline-actions"><select id="instructionSharingSelect"><option value="off">关闭</option><option value="metadata">仅元数据（推荐）</option><option value="content">发送正文</option></select><button class="primary-button" id="saveInstructionSharing">保存并应用</button></div></div>
+            <div class="notice warning instruction-warning"><b>敏感信息边界</b><p>请先展开下方本地预览检查内容。规则文件中的密码、令牌、私钥或业务秘密应迁移到环境变量或 SecretStore；普通日志和初始化元数据不会记录正文。</p></div>
+            <div class="instruction-preview" id="instructionPreview"><span class="task-muted">正在读取本地规则文件状态。</span></div>
+          </article>
           <article class="panel settings-list update-panel">
             <div class="panel-title"><div><h3>版本与更新</h3><p>从 GitHub Release 下载当前 Linux 架构对应的原生 ELF，并在安装前校验 SHA-256。</p></div><button class="secondary-button" id="checkUpdateButton">检查更新</button></div>
             <div class="setting-row"><span><b>当前版本</b><small id="currentVersionText">正在读取版本信息</small></span><span class="security-chip" id="updateArchitecture">—</span></div>
@@ -229,5 +235,4 @@
   <script src="app.js"></script>
 </body>
 </html>
-
 

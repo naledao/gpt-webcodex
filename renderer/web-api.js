@@ -63,6 +63,7 @@
     runBuild: (options) => request('POST', '/api/build/run', options || {}),
     inspectHealth: () => request('GET', '/api/health'),
     repairHealth: () => request('POST', '/api/health/repair'),
+    instructionPreview: () => request('GET', '/api/instructions/preview'),
     saveSettings: (patch) => request('POST', '/api/settings', patch || {}),
     saveRuntimeKey: (value) => request('POST', '/api/secrets/runtime-key', { value }),
     removeRuntimeKey: () => request('DELETE', '/api/secrets/runtime-key'),

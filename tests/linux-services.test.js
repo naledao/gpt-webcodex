@@ -7,6 +7,7 @@ const path = require('node:path');
 const paths = require('../src/paths');
 const { SecretStore } = require('../src/services/secretStore');
 const { normalizeProxyValue, environmentProxyCandidates } = require('../src/services/proxyService');
+const { runtimeFingerprint } = require('../src/services/nativeService');
 const {
   ELF_MACHINE_AARCH64,
   ELF_MACHINE_X86_64,
@@ -53,6 +54,15 @@ test('Linux process, Python and shell rules are present', () => {
   for (const forbidden of ['where.exe', 'taskkill.exe', 'cmd.exe', 'reg.exe', 'netsh.exe']) {
     assert.equal(`${processSource}\n${environmentSource}\n${buildSource}`.includes(forbidden), false, forbidden);
   }
+});
+
+test('instruction sharing mode participates in the native runtime fingerprint', () => {
+  const base = { workspace: '/tmp/project', authorizedRoots: [], mcpPort: 18765, permissionMode: 'safe' };
+  assert.notEqual(
+    runtimeFingerprint({ ...base, instructionSharingMode: 'metadata' }),
+    runtimeFingerprint({ ...base, instructionSharingMode: 'content' })
+  );
+  assert.match(source('src/services/nativeService.js'), /CODING_TOOLS_MCP_INSTRUCTION_SHARING_MODE/);
 });
 
 test('proxy parsing uses environment/manual HTTP(S) values without credentials', () => {

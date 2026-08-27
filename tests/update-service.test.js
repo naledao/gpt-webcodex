@@ -9,6 +9,7 @@ const path = require('node:path');
 const { Readable } = require('node:stream');
 
 const { requestJson } = require('../src/services/httpClient');
+const { GitHubReleaseResolver } = require('../src/services/githubReleaseResolver');
 const {
   UpdateService,
   parseVersion,
@@ -82,6 +83,75 @@ test('HTTP client follows redirects and parses bounded JSON', async (t) => {
   assert.deepEqual(result, { ok: true, path: '/metadata' });
 });
 
+test('walks stable releases newest-first until one contains the current Linux asset', async () => {
+  const binary = fakeElf('x64');
+  const requests = [];
+  const releases = [
+    {
+      tag_name: 'v0.2.0', draft: false, prerelease: false,
+      assets: [{ name: 'latest.yml', state: 'uploaded' }, { name: 'setup.exe', state: 'uploaded' }]
+    },
+    {
+      tag_name: 'v0.2.0-beta.1', draft: false, prerelease: true,
+      assets: [{ name: 'web-mcp-assistant-linux-x64', state: 'uploaded' }]
+    },
+    releaseFor(binary)
+  ];
+  const resolver = new GitHubReleaseResolver({
+    requestJson: async (url) => {
+      requests.push(url);
+      return releases;
+    }
+  });
+
+  const selected = await resolver.findLatest('web-mcp-assistant-linux-x64');
+  assert.equal(selected.release.tag_name, 'v0.1.8');
+  assert.equal(selected.inspected, 2);
+  assert.match(requests[0], /releases\?per_page=100&page=1$/);
+});
+
+test('paginates release discovery and reports a missing Linux target', async () => {
+  const binary = fakeElf('arm64');
+  const pages = [
+    [
+      { tag_name: 'v0.3.0', draft: false, prerelease: false, assets: [] },
+      { tag_name: 'v0.2.0', draft: false, prerelease: false, assets: [] }
+    ],
+    [releaseFor(binary, { arch: 'arm64' })]
+  ];
+  const resolver = new GitHubReleaseResolver({
+    pageSize: 2,
+    requestJson: async (url) => pages[Number(new URL(url).searchParams.get('page')) - 1] || []
+  });
+  const selected = await resolver.findLatest('web-mcp-assistant-linux-arm64');
+  assert.equal(selected.release.tag_name, 'v0.1.8');
+  assert.equal(selected.inspected, 3);
+
+  const missing = new GitHubReleaseResolver({ requestJson: async () => pages[0] });
+  await assert.rejects(
+    missing.findLatest('web-mcp-assistant-linux-x64'),
+    /没有找到包含 web-mcp-assistant-linux-x64 的稳定 Release；已检查 2 个 Release/
+  );
+});
+
+test('does not fall back when the newest matching Linux asset has invalid metadata', async (t) => {
+  const temporary = await fsp.mkdtemp(path.join(os.tmpdir(), 'web-mcp-update-invalid-release-'));
+  t.after(() => fsp.rm(temporary, { recursive: true, force: true }));
+  const binary = fakeElf('x64');
+  const invalid = releaseFor(binary, { version: 'v0.2.0' });
+  delete invalid.assets[0].digest;
+  const updater = new UpdateService({
+    currentVersion: '0.1.7',
+    arch: 'x64',
+    platform: 'linux',
+    native: false,
+    stateFile: path.join(temporary, 'update-state.json'),
+    requestJson: async () => [invalid, releaseFor(binary)]
+  });
+
+  await assert.rejects(updater.check({ force: true }), /缺少有效的 SHA-256 digest/);
+});
+
 test('UpdateService downloads, verifies and atomically installs the matching ELF', async (t) => {
   const temporary = await fsp.mkdtemp(path.join(os.tmpdir(), 'web-mcp-update-'));
   t.after(() => fsp.rm(temporary, { recursive: true, force: true }));
@@ -101,7 +171,7 @@ test('UpdateService downloads, verifies and atomically installs the matching ELF
     stateFile: path.join(temporary, 'state', 'update-state.json'),
     logFile: path.join(temporary, 'state', 'logs', 'update.log'),
     managerStateDir: path.join(temporary, 'state'),
-    requestJson: async () => release,
+    requestJson: async () => [release],
     requestStream: async () => Readable.from([
       newBinary.subarray(0, 1024),
       newBinary.subarray(1024, 4096),
@@ -158,7 +228,7 @@ test('UpdateService rejects source mode, digest mismatches and wrong ELF archite
   const digestUpdater = new UpdateService({
     currentVersion: '0.1.7', arch: 'x64', platform: 'linux', execPath: target, native: false,
     updateRoot: path.join(temporary, 'digest-updates'), stateFile: path.join(temporary, 'digest-state.json'),
-    requestJson: async () => releaseFor(expected),
+    requestJson: async () => [releaseFor(expected)],
     requestStream: async () => Readable.from([corrupted])
   });
   await digestUpdater.check({ force: true });

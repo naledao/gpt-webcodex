@@ -80,7 +80,7 @@ SEA 二进制内嵌的网页、MCP 源码和 Tunnel 客户端会释放到当前�
 
 ## 原生更新供应链
 
-更新器只接受仓库 latest 稳定 Release 中与当前架构完全匹配的固定资产名。文件先流式写入 XDG state 临时目录，再校验 Release 声明大小、GitHub API 返回的 SHA-256 digest 和 ELF machine；任何一步失败都不会触碰当前可执行文件。
+更新器分页遍历仓库正式 Release，只接受最近一个与当前架构完全匹配的固定资产名；Draft、Prerelease、无效稳定版本以及只含其他平台/架构资产的 Release 会被跳过。目标资产一旦出现，其大小、GitHub API SHA-256 digest 或下载 URL 无效就会终止检查，不会静默降级到更老资产。文件先流式写入 XDG state 临时目录，再校验 Release 声明大小、SHA-256 digest 和 ELF machine；任何一步失败都不会触碰当前可执行文件。
 
 替换前要求当前进程确实是 Linux SEA，且运行用户对目标目录有写权限。旧二进制保留为 `.previous`，新版本无法启动 Web 服务时会自动回滚。更新接口沿用 Web 登录认证，不接受客户端提供任意仓库、URL、文件名或目标路径。
 

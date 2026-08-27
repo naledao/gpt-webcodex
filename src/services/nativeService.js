@@ -14,6 +14,7 @@ function runtimeFingerprint(settings) {
     authorizedRoots: (settings.authorizedRoots || []).map((item) => path.resolve(String(item))).sort(),
     port: Number(settings.mcpPort),
     permissionMode: settings.permissionMode || 'safe',
+    instructionSharingMode: settings.instructionSharingMode || 'metadata',
     toolMode: 'smart'
   })).digest('hex');
 }
@@ -22,7 +23,7 @@ function currentRuntimeState(input = {}) {
   const allowed = new Set([
     'manualStop', 'tunnelPid', 'tunnelStartedAt',
     'nativePid', 'nativeFingerprint', 'nativeWorkspace', 'nativePort',
-    'nativePermissionMode', 'nativeToolMode', 'nativeCommand', 'nativeInstanceId', 'startedAt'
+    'nativePermissionMode', 'nativeToolMode', 'nativeInstructionSharingMode', 'nativeCommand', 'nativeInstanceId', 'startedAt'
   ]);
   return Object.fromEntries(Object.entries(input).filter(([key]) => allowed.has(key)));
 }
@@ -58,6 +59,7 @@ class NativeService {
       CODING_TOOLS_MCP_TELEMETRY: 'off',
       PYTHONDONTWRITEBYTECODE: '1',
       CODING_TOOLS_MCP_TOOL_MODE: 'smart',
+      CODING_TOOLS_MCP_INSTRUCTION_SHARING_MODE: settings.instructionSharingMode || 'metadata',
       CODING_TOOLS_MCP_AUTHORIZED_ROOTS: JSON.stringify(settings.authorizedRoots || []),
       CODING_TOOLS_MCP_LONG_TOOL_HANDOFF_SECONDS: String(settings.progressReportSeconds || 90)
     };
@@ -94,6 +96,7 @@ class NativeService {
       nativePort: Number(settings.mcpPort),
       nativePermissionMode: settings.permissionMode,
       nativeToolMode: 'smart',
+      nativeInstructionSharingMode: settings.instructionSharingMode || 'metadata',
       nativeCommand: python.command,
       startedAt: new Date().toISOString(),
       nativeInstanceId: crypto.randomBytes(12).toString('hex')
@@ -116,6 +119,7 @@ class NativeService {
         nativeWorkspace: '',
         nativePort: null,
         nativePermissionMode: '',
+        nativeInstructionSharingMode: '',
         nativeInstanceId: ''
       }));
     }
@@ -128,7 +132,8 @@ class NativeService {
       nativeWorkspace: path.resolve(settings.workspace),
       nativePort: Number(settings.mcpPort),
       nativePermissionMode: settings.permissionMode,
-      nativeToolMode: 'smart'
+      nativeToolMode: 'smart',
+      nativeInstructionSharingMode: settings.instructionSharingMode || 'metadata'
     }));
     return true;
   }

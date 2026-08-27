@@ -8,11 +8,12 @@ const { isSea } = require('node:sea');
 
 const packageJson = require('../../package.json');
 const { requestJson, requestStream } = require('./httpClient');
+const { GitHubReleaseResolver } = require('./githubReleaseResolver');
 const { resolveProxy } = require('./proxyService');
 const { readJson, writeJsonAtomic, ensureParent } = require('./jsonStore');
 const { updateRoot, updateStateFile, updateLogFile, stateRoot } = require('../paths');
 
-const RELEASES_API = 'https://api.github.com/repos/naledao/gpt-webcodex/releases/latest';
+const RELEASES_API = 'https://api.github.com/repos/naledao/gpt-webcodex/releases';
 const UPDATE_HELPER_FLAG = '--web-mcp-update-restart-helper';
 const CHECK_CACHE_MS = 15 * 60 * 1000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
@@ -79,7 +80,7 @@ async function validateElf(file, arch) {
 
 function releaseInfo(release, arch, currentVersion) {
   if (!release || typeof release !== 'object') throw new Error('GitHub Release 元数据为空。');
-  if (release.draft || release.prerelease) throw new Error('GitHub latest Release 不是稳定发布。');
+  if (release.draft || release.prerelease) throw new Error('选中的 GitHub Release 不是稳定发布。');
   const parsed = parseVersion(release.tag_name);
   if (!parsed || parsed.prerelease) throw new Error(`GitHub Release 标签不是稳定语义版本：${release.tag_name || 'unknown'}`);
   const expected = expectedAsset(arch);
@@ -129,6 +130,10 @@ class UpdateService {
     this.emitProgress = options.emitProgress || (() => {});
     this.requestJson = options.requestJson || requestJson;
     this.requestStream = options.requestStream || requestStream;
+    this.releaseResolver = options.releaseResolver || new GitHubReleaseResolver({
+      requestJson: this.requestJson,
+      log: this.log
+    });
     this.spawn = options.spawn || spawn;
     this.atomicReplace = options.atomicReplace || defaultAtomicReplace;
     this.updateRoot = options.updateRoot || updateRoot();
@@ -196,6 +201,7 @@ class UpdateService {
       releaseUrl: saved.releaseUrl || '',
       publishedAt: saved.publishedAt || '',
       immutable: saved.immutable === true,
+      inspectedReleases: Number(saved.inspectedReleases) || 0,
       available: saved.available === true,
       asset: saved.asset ? {
         name: saved.asset.name,
@@ -219,24 +225,27 @@ class UpdateService {
     const previous = this.readState();
     const checkedAt = Date.parse(previous.checkedAt || '') || 0;
     if (!options.force && previous.latestVersion && this.now() - checkedAt < CHECK_CACHE_MS) return this.status();
-    this.progress('checking', 5, '正在检查 GitHub 最新稳定版本');
+    this.progress('checking', 5, '正在查找适用于当前架构的 GitHub 稳定版本');
     try {
       const proxyUrl = await this.proxyUrl();
-      const release = await this.requestJson(RELEASES_API, {
+      const expected = expectedAsset(this.arch);
+      const selected = await this.releaseResolver.findLatest(expected.asset, {
         proxyUrl,
         timeoutMs: 30_000,
+        maxBytes: 8 * 1024 * 1024,
         headers: {
           Accept: 'application/vnd.github+json',
           'X-GitHub-Api-Version': '2022-11-28',
           'User-Agent': `web-mcp-assistant/${this.currentVersion}`
         }
       });
-      const info = releaseInfo(release, this.arch, this.currentVersion);
+      const info = releaseInfo(selected.release, this.arch, this.currentVersion);
       const keepStage = previous.stagedVersion === info.latestVersion
         && previous.asset?.sha256 === info.asset.sha256
         && previous.stagedPath && fs.existsSync(previous.stagedPath);
       this.writeState({
         ...info,
+        inspectedReleases: selected.inspected,
         checkedAt: new Date(this.now()).toISOString(),
         stagedPath: keepStage ? previous.stagedPath : '',
         stagedVersion: keepStage ? previous.stagedVersion : '',

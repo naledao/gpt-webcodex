@@ -33,26 +33,35 @@ test('XDG config/state paths are used', () => {
 
 test('settings normalize to Linux-only schema', () => {
   const value = normalize({
-    configVersion: 5,
+    configVersion: 6,
     workspace: '/home/User/project/',
     proxyMode: 'system',
     startWithWindows: true,
     keepRunningOnClose: true,
     autoStartServices: 1
   });
-  assert.equal(value.configVersion, 6);
+  assert.equal(value.configVersion, 7);
   assert.equal(value.workspace, '/home/User/project');
   assert.equal(value.proxyMode, 'environment');
   assert.equal(value.autoStartServices, true);
+  assert.equal(value.instructionSharingMode, 'metadata');
   assert.equal(Object.hasOwn(value, 'startWithWindows'), false);
   assert.equal(Object.hasOwn(value, 'keepRunningOnClose'), false);
   assert.notEqual(workspaceKey('/home/User/project'), workspaceKey('/home/user/project'));
+});
+
+test('instruction sharing requires an explicit supported mode', () => {
+  assert.equal(normalize({ configVersion: 7, instructionSharingMode: 'content' }).instructionSharingMode, 'content');
+  assert.equal(normalize({ configVersion: 7, instructionSharingMode: 'off' }).instructionSharingMode, 'off');
+  assert.equal(normalize({ configVersion: 7, instructionSharingMode: 'unsafe-auto' }).instructionSharingMode, 'metadata');
+  assert.equal(normalize({ configVersion: 6, instructionSharingMode: 'content' }).instructionSharingMode, 'metadata');
 });
 
 test('runtime settings require Linux absolute paths', () => {
   const valid = normalize({ workspace: '/home/user/project' });
   assert.doesNotThrow(() => validateRuntimeSettings(valid));
   assert.throws(() => validateRuntimeSettings({ ...valid, workspace: 'relative/project' }), /Linux 绝对路径/);
+  assert.throws(() => validateRuntimeSettings({ ...valid, instructionSharingMode: 'invalid' }), /分享模式/);
 });
 
 test('SettingsStore persists normalized settings under XDG config', () => {
