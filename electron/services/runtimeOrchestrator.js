@@ -44,40 +44,6 @@ function probeMcp(port, token, expectedWorkspace = '') {
 }
 
 
-function switchMcpWorkspace(port, token, workspace) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ workspace });
-    const request = http.request({
-      host: '127.0.0.1',
-      port,
-      path: '/__control/workspace',
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body)
-      },
-      timeout: 5000
-    }, (response) => {
-      let payload = '';
-      response.setEncoding('utf8');
-      response.on('data', (chunk) => { if (payload.length < 65536) payload += chunk; });
-      response.on('end', () => {
-        let parsed = {};
-        try { parsed = payload ? JSON.parse(payload) : {}; } catch { /* handled below */ }
-        if (response.statusCode !== 200 || parsed.ready !== true) {
-          reject(new Error(parsed.error || `MCP 工作区切换失败（HTTP ${response.statusCode}）`));
-          return;
-        }
-        resolve(parsed);
-      });
-    });
-    request.on('timeout', () => { request.destroy(new Error('MCP 工作区切换超时')); });
-    request.on('error', reject);
-    request.end(body);
-  });
-}
-
 function setMcpAuthorizedRoots(port, token, roots) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ roots });
@@ -302,45 +268,40 @@ class RuntimeOrchestrator {
     }
 
     this.busy = true;
-    let runtimeWasRunning = false;
+    let servicesWereRunning = false;
     try {
-      runtimeWasRunning = await this.native.status();
-    } catch {
-      runtimeWasRunning = false;
+      const [runtimeRunning, tunnelRunning] = await Promise.all([
+        this.native.status().catch(() => false),
+        this.tunnel.status(previous).catch(() => false)
+      ]);
+      servicesWereRunning = runtimeRunning || tunnelRunning;
+    } finally {
+      this.busy = false;
     }
 
-    if (!runtimeWasRunning) {
+    if (!servicesWereRunning) {
       this.settingsStore.save({ workspace, recentWorkspaces });
       this.progress('workspace-saved', 100, '工作目录已保存，服务下次启动时生效');
-      this.busy = false;
       this.invalidateSnapshot();
       return this.snapshot({ force: true, reason: 'workspace-saved' });
     }
 
-    const token = await this.ensureToken();
+    this.settingsStore.save({ workspace, recentWorkspaces });
     try {
-      this.progress('workspace-switch', 20, '正在热切换 MCP 工作目录');
-      await switchMcpWorkspace(previous.mcpPort, token, workspace);
-      const next = this.settingsStore.save({ workspace, recentWorkspaces });
-      await this.native.markWorkspace(next);
-      this.progress('workspace-health', 80, '正在验证新的工作目录');
-      const ready = await probeMcp(next.mcpPort, token, workspace);
-      if (!ready) throw new Error('新工作目录与 MCP 实际目录不一致。');
-      this.progress('workspace-complete', 100, '工作目录已切换，MCP 与 Tunnel 均未重启');
+      this.progress('workspace-restart', 10, '正在重启 MCP 与 Tunnel，以刷新 ChatGPT 项目指令');
+      await this.restart();
+      this.progress('workspace-complete', 100, '工作目录已切换，ChatGPT 将重新加载项目指令');
       this.invalidateSnapshot();
-      return this.snapshot({ force: true, reason: 'workspace-switched' });
+      return this.snapshot({ force: true, reason: 'workspace-reinitialized' });
     } catch (error) {
       this.log.error(error.message, { stage: 'workspace-switch', rollback: previous.workspace });
+      this.settingsStore.save(previous);
       try {
-        await switchMcpWorkspace(previous.mcpPort, token, previous.workspace);
-        this.settingsStore.save(previous);
-        await this.native.markWorkspace(previous);
+        await this.restart();
       } catch (rollbackError) {
         this.log.error(rollbackError.message, { stage: 'workspace-rollback' });
       }
       throw new Error(`工作目录切换失败：${error.message}`);
-    } finally {
-      this.busy = false;
     }
   }
 

@@ -163,12 +163,15 @@ class ToolModeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.dict("os.environ", {"CODING_TOOLS_MCP_TOOL_MODE": "smart"}):
             root = Path(temp)
             (root / "app.py").write_text("print('ok')\n", encoding="utf-8")
+            (root / "AGENTS.md").write_text("always run tests\n", encoding="utf-8")
             runtime = Runtime(root)
             first = runtime.workspace_context({})
             second = runtime.workspace_context({})
             self.assertEqual(first["detail"], "compact")
             self.assertFalse(first["cache"]["hit"])
             self.assertTrue(second["cache"]["hit"])
+            self.assertEqual(first["instructions"]["root"][0]["content"], "always run tests\n")
+            self.assertEqual(len(first["instructions"]["root"]), 1)
             self.assertNotIn("events", second["task"])
 
     def test_finished_command_moves_task_to_waiting(self) -> None:
@@ -183,11 +186,14 @@ class ToolModeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.dict("os.environ", {"CODING_TOOLS_MCP_TOOL_MODE": "smart"}):
             root = Path(temp)
             (root / "app.py").write_text("def greet():\n    return 'hello'\n", encoding="utf-8")
+            (root / "AGENTS.md").write_text("keep the greeting documented\n", encoding="utf-8")
             runtime = Runtime(root)
             first = runtime.prepare_coding_context({"objective": "change greeting", "queries": ["greet"], "max_files": 4})
             second = runtime.prepare_coding_context({"objective": "change greeting", "queries": ["greet"], "max_files": 4})
             self.assertFalse(first["cache_hit"])
             self.assertTrue(second["cache_hit"])
+            self.assertEqual(first["instructions"]["root"][0]["content"], "keep the greeting documented\n")
+            self.assertNotIn("instructions", first["workspace"])
             self.assertEqual(first["files"][0]["path"], "app.py")
             self.assertIn("hello", first["files"][0]["content"])
 

@@ -599,7 +599,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "workspace_context": ToolSpec(
         title="Inspect workspace",
-        description="Preferred read-only tool when the user asks what is in the current working directory or wants a quick project overview. Returns the active workspace, default directory, project type, root entries, Git status, and task summary in one call; do not use exec_command merely to list files.",
+        description="Preferred read-only tool when the user asks what is in the current working directory or wants a quick project overview. Returns the active workspace, current project instruction contents, default directory, project type, root entries, Git status, and task summary in one call; treat the returned instructions as active guidance and do not use exec_command merely to list files.",
         read_only=True,
         idempotent=True,
     ),
@@ -2056,6 +2056,7 @@ class Runtime:
         payload = {
             "workspace": str(self.workspace.root),
             "default_cwd": self.default_cwd_display(),
+            "instructions": self._project_instructions_payload(),
             "project": project,
             "entries": root_entries.get("entries", []),
             "entries_truncated": root_entries.get("truncated", False),
@@ -2067,6 +2068,20 @@ class Runtime:
         }
         self._fast_cache_put(cache_key, payload)
         return payload
+
+    def _project_instructions_payload(self) -> dict[str, Any]:
+        return {
+            "global": [
+                {"path": item.path, "content": item.content, "truncated": item.truncated}
+                for item in self.project_context.global_files
+            ],
+            "root": [
+                {"path": item.path, "content": item.content, "truncated": item.truncated}
+                for item in self.project_context.root_files
+            ],
+            "nested_paths": list(self.project_context.nested_files),
+            "warnings": list(self.project_context.warnings),
+        }
 
     def _context_bundle_cache_key(self, args: dict[str, Any]) -> str:
         normalized = {key: value for key, value in args.items() if key != "force_refresh"}
@@ -2104,18 +2119,8 @@ class Runtime:
         max_matches = min(max(int(args.get("max_matches_per_query", 20)), 1), 100)
 
         workspace = self.workspace_context({"path": str(args.get("path", ".")), "max_entries": int(args.get("max_entries", 120))})
-        instructions = {
-            "global": [
-                {"path": item.path, "content": item.content, "truncated": item.truncated}
-                for item in self.project_context.global_files
-            ],
-            "root": [
-                {"path": item.path, "content": item.content, "truncated": item.truncated}
-                for item in self.project_context.root_files
-            ],
-            "nested_paths": list(self.project_context.nested_files),
-            "warnings": list(self.project_context.warnings),
-        }
+        workspace.pop("instructions", None)
+        instructions = self._project_instructions_payload()
         searches: list[dict[str, Any]] = []
         path_scores: dict[str, int] = {path: 1_000_000 - index for index, path in enumerate(requested_paths)}
 

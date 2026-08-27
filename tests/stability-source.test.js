@@ -33,10 +33,11 @@ test('HTTP sessions share one runtime and expose protocol health', () => {
   assert.match(server, /__control\/workspace/);
 });
 
-test('desktop runtime hot-switches workspaces and supervises stale tasks', () => {
+test('desktop runtime restarts workspace connections so ChatGPT reloads instructions', () => {
   const orchestrator = read('electron/services/runtimeOrchestrator.js');
-  assert.match(orchestrator, /switchMcpWorkspace/);
-  assert.match(orchestrator, /MCP 与 Tunnel 均未重启/);
+  assert.doesNotMatch(orchestrator, /switchMcpWorkspace/);
+  assert.match(orchestrator, /正在重启 MCP 与 Tunnel，以刷新 ChatGPT 项目指令/);
+  assert.match(orchestrator, /workspace-reinitialized/);
   assert.match(orchestrator, /async supervise\(\)/);
 });
 

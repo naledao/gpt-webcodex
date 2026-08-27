@@ -482,7 +482,7 @@ async function chooseWorkspace() {
     state.selectedWorkspace = selected;
     $('#selectedWorkspace').textContent = selected;
     renderDeploySummary();
-    toast('正在切换工作目录', 'MCP 会在后台静默重建，ChatGPT 与 Tunnel 不会关闭。');
+    toast('正在切换工作目录', 'MCP 与 Tunnel 会在后台重启，以便 ChatGPT 重新加载项目规则。');
     const switched = unwrap(await api.switchWorkspace(selected));
     renderSnapshot(switched, { forceForms: true });
     toast('工作目录已切换', selected);

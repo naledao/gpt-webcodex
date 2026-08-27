@@ -8,7 +8,7 @@ from pathlib import Path
 from .envutils import ENV_PREFIX, truthy_env
 
 
-CONTEXT_FILE_NAMES = frozenset({"AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"})
+CONTEXT_FILE_NAMES = ("AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD")
 GLOBAL_CONTEXT_FILE_NAMES = ("AGENTS.override.md", "AGENTS.md")
 SKIPPED_CONTEXT_DIRS = frozenset(
     {
@@ -105,7 +105,8 @@ def load_project_context(
     global_files = _load_global_context(codex_home, warnings) if include_global else ()
     global_bytes = sum(len(item.content.encode("utf-8")) for item in global_files)
     remaining = max(0, MAX_ROOT_CONTEXT_BYTES - global_bytes)
-    for name in sorted(CONTEXT_FILE_NAMES):
+    seen_root_paths: set[str] = set()
+    for name in CONTEXT_FILE_NAMES:
         path = resolved_root / name
         if not path.is_file():
             continue
@@ -115,6 +116,10 @@ def load_project_context(
         except (OSError, ValueError):
             warnings.append(f"Skipped unsafe root instruction path: {name}")
             continue
+        resolved_key = os.path.normcase(str(resolved))
+        if resolved_key in seen_root_paths:
+            continue
+        seen_root_paths.add(resolved_key)
         if remaining <= 0:
             warnings.append("Root instruction byte limit reached.")
             break

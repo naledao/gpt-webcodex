@@ -49,6 +49,15 @@ class GlobalProjectContextTests(unittest.TestCase):
         self.assertLess(instructions.index("global rule"), instructions.index("project rule"))
         self.assertIn("project instructions below take precedence", instructions)
 
+    def test_project_context_deduplicates_case_aliases(self) -> None:
+        (self.workspace / "AGENTS.md").write_text("project rule", encoding="utf-8")
+
+        context = load_project_context(self.workspace, include_global=False)
+
+        self.assertEqual(len(context.root_files), 1)
+        self.assertEqual(context.root_files[0].path, "AGENTS.md")
+        self.assertEqual(context.root_files[0].content, "project rule")
+
     def test_non_empty_override_wins_and_empty_override_falls_back(self) -> None:
         override = self.codex_home / "AGENTS.override.md"
         standard = self.codex_home / "AGENTS.md"

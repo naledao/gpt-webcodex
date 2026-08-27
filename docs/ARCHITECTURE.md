@@ -29,11 +29,11 @@ ChatGPT、OpenAI Tunnels、Runtime Keys 等远程页面统一通过 `shell.openE
 
 ## 指令上下文
 
-- 项目根目录中的 `AGENTS.md` / `CLAUDE.md` 在 MCP 启动或工作区切换时读取。
+- 项目根目录中的 `AGENTS.md` / `CLAUDE.md` 在 MCP 启动时读取；切换工作区会重启 MCP 与 Tunnel，强制 ChatGPT 建立新的初始化上下文。
 - “全局 AGENTS.md”默认关闭。用户明确开启后，运行时按 `AGENTS.override.md`、`AGENTS.md` 的顺序，从 `CODEX_HOME`（默认 `%USERPROFILE%\.codex`）选择首个非空 UTF-8 文件。
 - 全局规则先于项目规则注入，项目规则因此具有更高优先级。
 - 全局文件是工作区边界之外唯一受支持的规则读取例外：只读、文件名固定，并拒绝解析到 Codex Home 之外的链接。
-- 规则通过 MCP `initialize.instructions` 和编码任务的准备上下文发送给 ChatGPT；修改后需要重新部署以确保所有会话刷新。
+- 规则通过 MCP `initialize.instructions`、`workspace_context` 和编码任务的准备上下文发送给 ChatGPT；修改后需要重新部署以确保所有会话刷新。
 
 ## 密钥与认证
 
