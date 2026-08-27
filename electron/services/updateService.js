@@ -1,5 +1,6 @@
 const { resolveProxy } = require('./proxyService');
 const { readJson, writeJsonAtomic } = require('./jsonStore');
+const { GitHubReleaseResolver } = require('./githubReleaseResolver');
 
 const RELEASES_URL = 'https://github.com/naledao/gpt-webcodex/releases';
 const AUTOMATIC_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -12,6 +13,9 @@ function errorMessage(error) {
   }
   if (code === 'ERR_UPDATER_LATEST_VERSION_NOT_FOUND') {
     return '没有找到可用的 GitHub 稳定版本。';
+  }
+  if (code === 'ERR_UPDATER_TARGET_RELEASE_NOT_FOUND' || code === 'ERR_UPDATER_RELEASE_DISCOVERY_FAILED') {
+    return message;
   }
   if (/net::ERR_(?:PROXY_CONNECTION_FAILED|CONNECTION_REFUSED)/i.test(message)) {
     return '更新服务器连接失败，请检查当前代理设置。';
@@ -29,14 +33,14 @@ function releaseNotesText(value) {
   return text.trim().slice(0, 8000);
 }
 
-function normalizeInfo(info = {}) {
+function normalizeInfo(info = {}, selectedRelease = null) {
   const version = String(info.version || '').trim();
   return {
     version,
-    releaseName: String(info.releaseName || '').trim().slice(0, 300),
-    releaseNotes: releaseNotesText(info.releaseNotes),
-    releaseDate: String(info.releaseDate || '').trim(),
-    releaseUrl: version ? `${RELEASES_URL}/tag/v${encodeURIComponent(version)}` : RELEASES_URL
+    releaseName: String(info.releaseName || selectedRelease?.releaseName || '').trim().slice(0, 300),
+    releaseNotes: releaseNotesText(info.releaseNotes || selectedRelease?.releaseNotes),
+    releaseDate: String(info.releaseDate || selectedRelease?.releaseDate || '').trim(),
+    releaseUrl: selectedRelease?.releaseUrl || (version ? `${RELEASES_URL}/tag/v${encodeURIComponent(version)}` : RELEASES_URL)
   };
 }
 
@@ -56,6 +60,15 @@ class UpdateService {
     this.markQuit = options.markQuit || (() => {});
     this.resumeStateFile = options.resumeStateFile || '';
     this.setTimer = options.setTimer || setTimeout;
+    this.releaseResolver = options.releaseResolver || new GitHubReleaseResolver({
+      fetch: (...args) => {
+        const networkSession = this.updater.netSession;
+        if (!networkSession?.fetch) throw new Error('更新网络会话不支持 GitHub Release 查询。');
+        return networkSession.fetch(...args);
+      },
+      log: this.log
+    });
+    this.selectedRelease = null;
     this.busy = '';
     this.state = {
       currentVersion: this.currentVersion,
@@ -97,17 +110,17 @@ class UpdateService {
     }
     this.updater.on('checking-for-update', () => this.updateState({ phase: 'checking', progress: 0, error: '' }));
     this.updater.on('update-available', (info) => this.updateState({
-      phase: 'available', available: true, downloaded: false, latest: normalizeInfo(info), checkedAt: new Date().toISOString(), error: ''
+      phase: 'available', available: true, downloaded: false, latest: normalizeInfo(info, this.selectedRelease), checkedAt: new Date().toISOString(), error: ''
     }));
     this.updater.on('update-not-available', (info) => this.updateState({
-      phase: 'up-to-date', available: false, downloaded: false, latest: normalizeInfo(info), checkedAt: new Date().toISOString(), progress: 100, error: ''
+      phase: 'up-to-date', available: false, downloaded: false, latest: normalizeInfo(info, this.selectedRelease), checkedAt: new Date().toISOString(), progress: 100, error: ''
     }));
     this.updater.on('download-progress', (progress) => this.updateState({
       phase: 'downloading', progress: Math.max(0, Math.min(100, Number(progress.percent || 0))),
       bytesPerSecond: Number(progress.bytesPerSecond || 0), transferred: Number(progress.transferred || 0), total: Number(progress.total || 0), error: ''
     }));
     this.updater.on('update-downloaded', (info) => this.updateState({
-      phase: 'downloaded', available: true, downloaded: true, latest: normalizeInfo(info), progress: 100, error: ''
+      phase: 'downloaded', available: true, downloaded: true, latest: normalizeInfo(info, this.selectedRelease), progress: 100, error: ''
     }));
     this.updater.on('error', (error) => this.updateState({ phase: 'error', error: errorMessage(error) }));
   }
@@ -166,7 +179,15 @@ class UpdateService {
     if (this.state.downloaded) return this.status();
     await this.runExclusive('check', async () => {
       await this.applyProxy();
-      this.updateState({ phase: 'checking', progress: 0, error: '' });
+      this.selectedRelease = null;
+      this.updateState({ phase: 'checking', available: false, latest: null, progress: 0, error: '' });
+      this.selectedRelease = await this.releaseResolver.findLatest(this.platform, this.architecture);
+      this.updater.setFeedURL({
+        provider: 'generic',
+        url: this.selectedRelease.downloadBaseUrl,
+        channel: 'latest',
+        useMultipleRangeRequest: false
+      });
       await this.updater.checkForUpdates();
     });
     return this.status();

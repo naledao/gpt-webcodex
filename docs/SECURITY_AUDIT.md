@@ -12,6 +12,7 @@
 - 管理页设置严格 CSP，不允许内联脚本。
 - Runtime Key 与 MCP Token 不进入渲染进程明文和普通日志。
 - 更新检查、下载与安装只存在于主进程固定 IPC 中；渲染进程不能指定更新源或本地安装路径。
+- Windows 更新发现只查询固定 GitHub 仓库，并要求 `latest.yml` 的 `updatePackages` 与 Release 实际资产同时匹配当前平台和架构；下载基址只能由仓库 Release 标签生成。
 - Windows 更新元数据使用 SHA-512 校验；配置 Authenticode 后，安装时还会验证签名发布者。
 
 ## 依赖审计

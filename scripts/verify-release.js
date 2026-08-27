@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { load: parseYaml } = require('js-yaml');
 
 const root = path.resolve(__dirname, '..');
 const pkg = require(path.join(root, 'package.json'));
@@ -18,12 +19,20 @@ for (const file of [installer, blockmap, metadata]) {
   if (!fs.existsSync(file) || fs.statSync(file).size === 0) throw new Error(`缺少发布产物：${file}`);
 }
 
-const yaml = fs.readFileSync(metadata, 'utf8');
-const url = yaml.match(/^\s*-?\s*url:\s*(.+)$/m)?.[1]?.trim();
-const sha512 = yaml.match(/^\s*sha512:\s*(\S+)$/m)?.[1];
+const manifest = parseYaml(fs.readFileSync(metadata, 'utf8'));
+const url = manifest?.files?.[0]?.url || manifest?.path;
+const sha512 = manifest?.files?.[0]?.sha512 || manifest?.sha512;
 if (url !== installerName) throw new Error(`latest.yml 指向了错误的安装包：${url || 'missing'}`);
 if (!sha512) throw new Error('latest.yml 缺少 SHA-512。');
+const expectedArch = String(process.env.RELEASE_ARCH || process.arch);
+const updatePackage = manifest?.updatePackages?.find((entry) => (
+  entry?.platform === 'win32'
+  && entry?.arch === expectedArch
+  && entry?.type === 'nsis'
+  && entry?.file === installerName
+));
+if (!updatePackage) throw new Error(`latest.yml 缺少 win32-${expectedArch} 更新包声明。`);
 const digest = crypto.createHash('sha512').update(fs.readFileSync(installer)).digest('base64');
 if (digest !== sha512) throw new Error('latest.yml SHA-512 与安装包不一致。');
 
-process.stdout.write(`Windows Release 校验通过：v${pkg.version}\n${installerName}\nlatest.yml + blockmap\n`);
+process.stdout.write(`Windows Release 校验通过：v${pkg.version}\n${installerName}\nlatest.yml (${updatePackage.platform}-${updatePackage.arch}) + blockmap\n`);

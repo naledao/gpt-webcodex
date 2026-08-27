@@ -4,7 +4,7 @@ Windows 安装版使用 `electron-updater`、NSIS 和 GitHub Releases。应用�
 
 ## Release 资产契约
 
-本仓库的 Linux 更新器与 Windows 更新器都会读取 GitHub 的 latest 稳定 Release。因此每个稳定 Release 必须同时包含对应版本的全部平台资产。Windows 部分至少包括：
+每个 Windows Release 至少包括：
 
 ```text
 latest.yml
@@ -12,16 +12,28 @@ web-mcp-assistant-setup-<version>.exe
 web-mcp-assistant-setup-<version>.exe.blockmap
 ```
 
-不要发布只包含单个平台资产的稳定 Release。先创建统一 Draft Release，分别上传 Linux 与 Windows 资产，完成校验后再发布草稿。
+`latest.yml` 还必须声明它所包含的更新包：
+
+```yaml
+updatePackages:
+  - platform: win32
+    arch: x64
+    type: nsis
+    file: web-mcp-assistant-setup-<version>.exe
+```
+
+Windows 客户端通过 GitHub API 从最新正式 Release 开始向旧版本遍历。没有 `latest.yml`、清单未声明当前 `platform-arch`、声明的安装包资产不存在、Draft 和 Prerelease 都会被跳过。找到最近的匹配 Release 后，客户端才把该 Release 的固定下载目录交给 `electron-updater` 比较版本并执行 SHA-512、blockmap 与安装流程。
+
+这使 Windows 客户端不再依赖 GitHub 的全局 Latest 是否恰好包含 Windows 包。Linux 分支当前仍使用全局 Latest；在 Linux 更新器实现相同回退能力前，发布 Windows-only 稳定版仍需评估旧 Linux 客户端的兼容性。
 
 ## Windows 构建流程
 
 1. 将 `package.json` 与 `package-lock.json` 版本设为目标版本。
-2. 创建同名 Draft Release，例如 `v0.1.9`。
+2. 创建同名 Draft Release，例如 `v0.1.9`，用于上传前复核。
 3. 在默认分支可用的 Actions 工作流中运行 `Build Windows Release Assets`，输入该标签。
-4. 工作流从 `windows` 分支构建、运行测试并验证 `latest.yml` 的 URL 与 SHA-512。
+4. 工作流从 `windows` 分支构建、自动写入 `updatePackages`，并验证 URL、平台、架构、安装包文件名与 SHA-512。
 5. 工作流只允许向现有 Draft Release 上传资产；目标已经发布时会失败。
-6. 确认 Linux 与 Windows 资产齐全后发布 Release。
+6. 确认目标客户端兼容性后发布 Release。
 
 本地可使用：
 

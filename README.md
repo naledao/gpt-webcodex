@@ -61,7 +61,7 @@ npm start
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
 ```
 
-发布 Windows 更新资产前，先创建与 `package.json` 版本一致的统一 Draft Release，并运行 GitHub Actions 的 `Build Windows Release Assets`。工作流只向现有草稿上传 `latest.yml`、NSIS 安装包与 blockmap，不会发布缺少 Linux 资产的不完整稳定版。详见 [Windows 更新发布说明](docs/WINDOWS_UPDATE_RELEASE.md)。
+发布 Windows 更新资产前，先创建与 `package.json` 版本一致的 Draft Release，并运行 GitHub Actions 的 `Build Windows Release Assets`。构建会在 `latest.yml` 写入 `updatePackages`，Windows 客户端从新到旧查找包含自身平台与架构的最近稳定 Release。详见 [Windows 更新发布说明](docs/WINDOWS_UPDATE_RELEASE.md)。
 
 ---
 
