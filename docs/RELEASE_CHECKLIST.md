@@ -63,6 +63,8 @@
 - [x] 发布包包含 LICENSE、THIRD_PARTY_NOTICES 和 SHA-256 校验文件。
 - [x] arm64 ELF 在隔离 XDG 目录中完成登录、静态页面和 snapshot 烟雾测试。
 - [x] arm64 ELF 释放出的 Tunnel 经 `file` 确认为静态链接 AArch64 ELF。
+- [x] x64 ELF 在 WSL2 x86_64 中完成登录、静态页面和 snapshot 烟雾测试。
+- [x] x64 发布只嵌入 Linux x64 Tunnel，并通过归档 SHA-256 校验。
 
 ## 自动测试
 

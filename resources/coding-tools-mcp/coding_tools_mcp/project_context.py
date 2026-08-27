@@ -7,6 +7,8 @@ from pathlib import Path
 
 
 CONTEXT_FILE_NAMES = frozenset({"AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"})
+GLOBAL_CONTEXT_FILE_NAME = "AGENTS.md"
+DEFAULT_CODEX_HOME_DIR_NAME = ".codex"
 SKIPPED_CONTEXT_DIRS = frozenset(
     {
         ".git",
@@ -27,6 +29,7 @@ SKIPPED_CONTEXT_DIRS = frozenset(
     }
 )
 MAX_ROOT_CONTEXT_BYTES = 32 * 1024
+MAX_GLOBAL_CONTEXT_BYTES = 16 * 1024
 MAX_CONTEXT_FILE_BYTES = 16 * 1024
 MAX_NESTED_CONTEXT_FILES = 64
 MAX_CONTEXT_SCAN_FILES = 20_000
@@ -49,6 +52,7 @@ class LoadedContextFile:
 
 @dataclass(frozen=True)
 class ProjectContext:
+    global_files: tuple[LoadedContextFile, ...]
     root_files: tuple[LoadedContextFile, ...]
     nested_files: tuple[str, ...]
     warnings: tuple[str, ...]
@@ -65,7 +69,11 @@ class ProjectContext:
             "For PDF, DOCX, Markdown, text, resume, report, or document conversion tasks, use document_workflow directly. Inspect source once, then create the complete output once.",
             "Use task_control to start, pause, stop, resume, clear, inspect persisted task state, or poll a background operation returned by a long workflow.",
             "Before claiming a build is ready, use agent_workflow with build_release and full verification so artifacts, versions, hashes, and the final report are checked consistently.",
+            "Instruction precedence is global, then project root, then nested project instructions. When instructions conflict, the more specific project instruction wins.",
         ]
+        for item in self.global_files:
+            suffix = " [truncated]" if item.truncated else ""
+            sections.append(f"Global instructions from {item.path}{suffix}:\n{item.content}")
         for item in self.root_files:
             suffix = " [truncated]" if item.truncated else ""
             sections.append(f"Project instructions from {item.path}{suffix}:\n{item.content}")
@@ -82,8 +90,28 @@ class ProjectContext:
 
 def load_project_context(root: Path) -> ProjectContext:
     resolved_root = root.expanduser().resolve(strict=True)
+    global_files: list[LoadedContextFile] = []
     loaded: list[LoadedContextFile] = []
     warnings: list[str] = []
+    try:
+        global_path = _global_context_path()
+        if global_path.is_file():
+            resolved_global = global_path.resolve(strict=True)
+            with resolved_global.open("rb") as handle:
+                data = handle.read(MAX_GLOBAL_CONTEXT_BYTES + 1)
+            content = _decode_utf8_prefix(data[:MAX_GLOBAL_CONTEXT_BYTES])
+            global_files.append(
+                LoadedContextFile(
+                    str(resolved_global),
+                    content,
+                    len(data) > MAX_GLOBAL_CONTEXT_BYTES,
+                )
+            )
+    except UnicodeDecodeError:
+        warnings.append(f"Skipped non-UTF-8 global instruction file: {global_path}")
+    except (OSError, RuntimeError) as exc:
+        warnings.append(f"Could not read global {GLOBAL_CONTEXT_FILE_NAME}: {exc}")
+
     remaining = MAX_ROOT_CONTEXT_BYTES
     for name in sorted(CONTEXT_FILE_NAMES):
         path = resolved_root / name
@@ -118,7 +146,13 @@ def load_project_context(root: Path) -> ProjectContext:
     if len(nested) > MAX_NESTED_CONTEXT_FILES:
         nested = nested[:MAX_NESTED_CONTEXT_FILES]
         warnings.append(f"Nested instruction list truncated to {MAX_NESTED_CONTEXT_FILES} files.")
-    return ProjectContext(tuple(loaded), tuple(nested), tuple(warnings))
+    return ProjectContext(tuple(global_files), tuple(loaded), tuple(nested), tuple(warnings))
+
+
+def _global_context_path() -> Path:
+    configured_home = os.environ.get("CODEX_HOME", "").strip()
+    codex_home = Path(configured_home).expanduser() if configured_home else Path.home() / DEFAULT_CODEX_HOME_DIR_NAME
+    return codex_home / GLOBAL_CONTEXT_FILE_NAME
 
 
 def _discover_context_files(root: Path, warnings: list[str]) -> list[str]:

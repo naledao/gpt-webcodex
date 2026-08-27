@@ -145,6 +145,8 @@ python3 -m coding_tools_mcp \
 
 `PYTHONPATH` 指向仓库内的 Coding Tools MCP 源码和 `python_vendor`。
 
+MCP 初始化时会读取 `${CODEX_HOME:-~/.codex}/AGENTS.md` 和当前工作区根目录的 `AGENTS.md`，并按“全局、项目根、项目子目录”的优先级提供给 GPT；越具体的项目指令优先级越高。全局与项目根指令正文直接进入初始化响应，嵌套指令按任务涉及的目录延迟读取。指令上下文会在 MCP 重启或切换工作区时重新加载。
+
 ## Tunnel
 
 Linux Tunnel 二进制按主机架构选择：

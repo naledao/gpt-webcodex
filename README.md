@@ -88,18 +88,18 @@ npm install
 npm run build:native
 ```
 
-arm64 产物位于：
+产物名称随当前主机架构变化（`x64` 或 `arm64`）：
 
 ```text
-dist/web-mcp-assistant-linux-arm64
-dist/web-mcp-assistant-v0.1.6-linux-arm64.tar.gz
+dist/web-mcp-assistant-linux-<arch>
+dist/web-mcp-assistant-v0.1.7-linux-<arch>.tar.gz
 dist/SHA256SUMS-native.txt
 ```
 
 直接运行：
 
 ```bash
-./dist/web-mcp-assistant-linux-arm64
+./dist/web-mcp-assistant-linux-<arch>
 ```
 
 如需在后台运行并脱离当前终端，可直接使用控制脚本：
@@ -137,7 +137,7 @@ web-mcp-assistantctl start
 ${XDG_CACHE_HOME:-~/.cache}/web-mcp-assistant/native/<build-id>/
 ```
 
-arm64 发布包运行时不需要安装 Node.js、npm 或 QEMU，但仍需要系统提供 Python 3.11 或更高版本。配置、密钥和状态继续使用原有 XDG 目录，升级二进制不会清空现有配置。
+原生发布包运行时不需要安装 Node.js 或 npm，但仍需要系统提供 Python 3.11 或更高版本。配置、密钥和状态继续使用原有 XDG 目录，升级二进制不会清空现有配置。
 
 ## 工作目录
 
@@ -155,6 +155,16 @@ C:\codes\example-project
 ```
 
 主工作目录与额外授权目录都必须是 Linux 绝对路径，并且必须真实存在。
+
+## AGENTS.md 指令
+
+GPT 通过 MCP 建立连接时，会按以下顺序接收指令：
+
+1. 全局指令：`${CODEX_HOME:-~/.codex}/AGENTS.md`。
+2. 当前工作区根目录的 `AGENTS.md`。
+3. 执行子目录任务时适用的嵌套 `AGENTS.md`。
+
+更具体的项目指令优先于全局指令。全局和项目根目录指令正文会放入 MCP 初始化响应；嵌套指令会先公布路径，在处理对应目录时加载正文。修改指令文件后需要重启 MCP；切换工作区也会重新加载。
 
 ## 配置与状态文件
 
