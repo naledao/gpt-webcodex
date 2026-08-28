@@ -9,12 +9,14 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
+from .textutils import sanitize_unicode_text
+
 
 WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 
 def _safe_text(value: Any, limit: int = 2_000_000) -> str:
-    return str(value or "")[:limit]
+    return sanitize_unicode_text(str(value or ""))[:limit]
 
 
 def extract_docx(path: Path, max_chars: int = 200_000) -> dict[str, Any]:
@@ -31,7 +33,7 @@ def extract_docx(path: Path, max_chars: int = 200_000) -> dict[str, Any]:
         text = "".join(node.text or "" for node in paragraph.iter(f"{{{WORD_NS}}}t")).strip()
         if text:
             paragraphs.append(text)
-    content = "\n".join(paragraphs)
+    content = sanitize_unicode_text("\n".join(paragraphs))
     return {
         "format": "docx",
         "content": content[:max_chars],
@@ -68,7 +70,7 @@ def extract_pdf(path: Path, max_chars: int = 200_000) -> dict[str, Any]:
         except Exception:
             pass
         page_layout.append({"page": page_number, "width_points": round(width, 2), "height_points": round(height, 2), "embedded_image_count": len(page_images)})
-        text = page.extract_text() or ""
+        text = sanitize_unicode_text(page.extract_text() or "")
         remaining = max_chars - total
         if remaining <= 0:
             truncated = True

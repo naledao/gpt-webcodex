@@ -7,6 +7,34 @@ from typing import Any
 DEFAULT_MAX_LINES = 2000
 
 
+def sanitize_unicode_text(text: str) -> str:
+    """Return strict Unicode text by repairing UTF-16 surrogate code units.
+
+    Some document extractors expose UTF-16 surrogate code units directly in a
+    Python string. Valid pairs are combined and isolated code units are
+    replaced with U+FFFD so the result can always be encoded as UTF-8.
+    """
+    if not any(0xD800 <= ord(char) <= 0xDFFF for char in text):
+        return text
+    return text.encode("utf-16-le", errors="surrogatepass").decode("utf-16-le", errors="replace")
+
+
+def sanitize_json_value(value: Any) -> Any:
+    """Recursively repair strings before they cross a JSON boundary."""
+    if isinstance(value, str):
+        return sanitize_unicode_text(value)
+    if isinstance(value, list):
+        return [sanitize_json_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(sanitize_json_value(item) for item in value)
+    if isinstance(value, dict):
+        return {
+            sanitize_unicode_text(key) if isinstance(key, str) else key: sanitize_json_value(item)
+            for key, item in value.items()
+        }
+    return value
+
+
 @dataclass(frozen=True)
 class TextTruncation:
     content: str

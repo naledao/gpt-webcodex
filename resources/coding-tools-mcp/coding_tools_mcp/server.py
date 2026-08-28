@@ -81,7 +81,7 @@ from .document_tools import create_docx, create_text_document, convert_document,
 from .task_state import TaskStateStore
 from .performance_trace import PerformanceTraceStore
 from .telemetry import SessionTelemetry
-from .textutils import DEFAULT_MAX_LINES, TextTruncation, truncate_text_head
+from .textutils import DEFAULT_MAX_LINES, TextTruncation, sanitize_json_value, truncate_text_head
 from .tool_results import make_tool_result
 from .transport_http import HTTPSessionManager
 from .transport_stdio import serve_stdio
@@ -832,7 +832,13 @@ LANDLOCK_ACCESS_FS_IOCTL_DEV = 1 << 15
 
 
 def json_response_payload(payload: Any) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    safe_payload = sanitize_json_value(payload)
+    return json.dumps(
+        safe_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
 
 
 @functools.lru_cache(maxsize=8)
@@ -1868,7 +1874,7 @@ class Runtime:
                 self.task_state.ensure_started(objective, current_step=TOOL_REGISTRY[name].title)
             self.request_context.request_id = request_id
             try:
-                payload = handler(args)
+                payload = cast(dict[str, Any], sanitize_json_value(handler(args)))
             finally:
                 if request_id is not None:
                     with self.request_sessions_lock:
@@ -1883,7 +1889,7 @@ class Runtime:
             content = spec.content_builder(payload) if spec.content_builder else None
             return make_tool_result(name, payload, is_error=payload.get("ok") is False, content=content)
         except ToolFailure as exc:
-            payload = {
+            payload = cast(dict[str, Any], sanitize_json_value({
                 "ok": False,
                 "error": {
                     "code": exc.code,
@@ -1892,7 +1898,7 @@ class Runtime:
                     "retryable": exc.retryable,
                     "details": exc.details,
                 },
-            }
+            }))
             if spec.error_status:
                 payload["status"] = spec.error_status
             diagnostics = permission_failure_diagnostics(exc)
@@ -1912,7 +1918,7 @@ class Runtime:
             self.emit_tool_trace(name, args, payload, started_at)
             return make_tool_result(name, payload, is_error=True)
         except Exception as exc:  # noqa: BLE001 - tool failures must stay structured
-            payload = {
+            payload = cast(dict[str, Any], sanitize_json_value({
                 "ok": False,
                 "error": {
                     "code": "INTERNAL_ERROR",
@@ -1921,7 +1927,7 @@ class Runtime:
                     "retryable": False,
                     "details": {},
                 },
-            }
+            }))
             if spec.error_status:
                 payload["status"] = spec.error_status
             self._record_task_tool_result(name, args, payload)
@@ -2879,12 +2885,14 @@ class Runtime:
         finished_at = time.monotonic()
         duration_ms = int((finished_at - started_at) * 1000)
         try:
+            trace_args = sanitize_json_value(args)
+            trace_payload = sanitize_json_value(payload)
             self.performance_trace.record(
                 tool=name,
                 started_monotonic=started_at,
                 finished_monotonic=finished_at,
-                request_bytes=len(json.dumps(args, ensure_ascii=False, default=str).encode("utf-8")),
-                response_bytes=len(json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")),
+                request_bytes=len(json.dumps(trace_args, ensure_ascii=False, default=str).encode("utf-8")),
+                response_bytes=len(json.dumps(trace_payload, ensure_ascii=False, default=str).encode("utf-8")),
                 ok=bool(payload.get("ok", False)),
                 cache_hit=bool(payload.get("cache_hit") or (isinstance(payload.get("cache"), dict) and payload["cache"].get("hit"))),
                 deduplicated=bool(payload.get("deduplicated")),

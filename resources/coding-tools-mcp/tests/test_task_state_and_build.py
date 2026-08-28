@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import time
+import types
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -17,7 +18,8 @@ from coding_tools_mcp.build_verify import collect_artifacts, detect_project
 from coding_tools_mcp.task_state import TaskStateStore, classify_command
 from coding_tools_mcp.server import Runtime
 from coding_tools_mcp.protocol import dispatch_rpc
-from coding_tools_mcp.document_tools import create_docx, extract_docx
+from coding_tools_mcp.document_tools import create_docx, create_text_document, extract_docx, extract_pdf
+from coding_tools_mcp.textutils import sanitize_json_value, sanitize_unicode_text
 
 
 class TaskStateTests(unittest.TestCase):
@@ -294,6 +296,63 @@ class ToolModeTests(unittest.TestCase):
 
 
 class DocumentToolTests(unittest.TestCase):
+    def test_unicode_sanitizer_repairs_surrogates_without_changing_valid_text(self) -> None:
+        self.assertEqual(sanitize_unicode_text("中文 💻"), "中文 💻")
+        self.assertEqual(sanitize_unicode_text("pair: \ud83d\udcbb"), "pair: 💻")
+        self.assertEqual(sanitize_unicode_text("high: \ud83d end"), "high: � end")
+        self.assertEqual(sanitize_unicode_text("low: \udcbb end"), "low: � end")
+        self.assertEqual(
+            sanitize_json_value({"items": ["bad \ud83d", {"\udcbb": "ok"}]}),
+            {"items": ["bad �", {"�": "ok"}]},
+        )
+
+    def test_json_response_payload_is_strict_utf8(self) -> None:
+        body = server_module.json_response_payload({"content": "bad \ud83d", "nested": ["\udcbb"]})
+        decoded = body.decode("utf-8", errors="strict")
+        self.assertNotIn("\\ud83d", decoded)
+        self.assertEqual(json.loads(decoded), {"content": "bad �", "nested": ["�"]})
+
+    def test_runtime_sanitizes_tool_results_before_performance_tracing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            "os.environ", {"CODING_TOOLS_MCP_TOOL_MODE": "smart"}
+        ):
+            runtime = Runtime(Path(temp))
+            runtime._tool_handlers["workspace_context"] = lambda _args: {"content": "bad \ud83d"}
+            result = runtime.call_tool("workspace_context", {"path": "\udcbb"})
+            trace = runtime.performance_trace.get()["recent"][-1]
+            runtime.close()
+        self.assertEqual(result["structuredContent"]["content"], "bad �")
+        self.assertTrue(trace["ok"])
+        self.assertGreater(trace["request_bytes"], 0)
+        self.assertGreater(trace["response_bytes"], 0)
+
+    def test_pdf_extraction_sanitizes_invalid_surrogates(self) -> None:
+        class FakePage:
+            mediabox = types.SimpleNamespace(width=100, height=200)
+            images = []
+
+            @staticmethod
+            def extract_text() -> str:
+                return "heading \ud83d\nvalid \ud83d\udcbb"
+
+        class FakeReader:
+            def __init__(self, _path: str) -> None:
+                self.pages = [FakePage()]
+
+        fake_pypdf = types.SimpleNamespace(PdfReader=FakeReader)
+        with tempfile.TemporaryDirectory() as temp, patch.dict(sys.modules, {"pypdf": fake_pypdf}):
+            source = Path(temp) / "source.pdf"
+            source.write_bytes(b"fake")
+            extracted = extract_pdf(source)
+        self.assertEqual(extracted["content"], "heading �\nvalid 💻")
+        extracted["content"].encode("utf-8", errors="strict")
+
+    def test_text_document_creation_sanitizes_invalid_surrogates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "safe.txt"
+            create_text_document(target, "before \ud83d after")
+            self.assertEqual(target.read_text(encoding="utf-8", errors="strict"), "before � after")
+
     def test_create_and_extract_docx(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             target = Path(temp) / "report.docx"
