@@ -100,7 +100,7 @@ npm run build:native:arm64
 
 ```text
 dist/web-mcp-assistant-linux-<arch>
-dist/web-mcp-assistant-v0.1.9-linux-<arch>.tar.gz
+dist/web-mcp-assistant-v0.1.12-linux-<arch>.tar.gz
 dist/SHA256SUMS-native.txt
 ```
 

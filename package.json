@@ -1,6 +1,6 @@
 {
   "name": "web-mcp-assistant",
-  "version": "0.1.9",
+  "version": "0.1.12",
   "description": "Linux Web 管理服务，用于运行 Coding Tools MCP 与 OpenAI Tunnel。",
   "author": "3169657175",
   "license": "MIT",
