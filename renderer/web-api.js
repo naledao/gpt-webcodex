@@ -34,7 +34,8 @@
       'chatgpt-connectors': 'https://chatgpt.com/#settings/Connectors',
       'openai-tunnels': 'https://platform.openai.com/settings/organization/tunnels',
       'openai-runtime-keys': 'https://platform.openai.com/settings/organization/api-keys',
-      'coding-tools-source': 'https://github.com/xyTom/coding-tools-mcp'
+      'coding-tools-source': 'https://github.com/xyTom/coding-tools-mcp',
+      'app-releases': 'https://github.com/naledao/gpt-webcodex/releases'
     };
     let url = urls[target];
     if (target === 'tunnel-ui') {
