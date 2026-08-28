@@ -19,14 +19,10 @@
 
       <nav class="nav-list" aria-label="主导航">
         <button class="nav-item active" data-page="overview"><span class="nav-icon">⌂</span><span>总览</span></button>
-        <button class="nav-item" data-page="deploy"><span class="nav-icon">◇</span><span>运行与连接</span></button>
-        <button class="nav-item" data-page="workspace"><span class="nav-icon">▱</span><span>工作区与权限</span></button>
-        <button class="nav-item" data-page="task"><span class="nav-icon">✓</span><span>任务状态</span></button>
-        <button class="nav-item" data-page="build"><span class="nav-icon">▣</span><span>构建验证</span></button>
-        <button class="nav-item" data-page="health"><span class="nav-icon">✚</span><span>诊断与修复</span></button>
-        <button class="nav-item" data-page="guide"><span class="nav-icon">?</span><span>接入指南</span></button>
-        <button class="nav-item" data-page="logs"><span class="nav-icon">≡</span><span>运行日志</span></button>
-        <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span><span>偏好设置</span></button>
+        <button class="nav-item" data-page="deploy"><span class="nav-icon">↗</span><span>连接与服务</span></button>
+        <button class="nav-item" data-page="workspace"><span class="nav-icon">▱</span><span>工作区</span></button>
+        <button class="nav-item" data-page="task"><span class="nav-icon">◷</span><span>活动</span></button>
+        <button class="nav-item" data-page="health"><span class="nav-icon">⌕</span><span>诊断</span></button>
       </nav>
 
       <div class="sidebar-runtime">
@@ -36,131 +32,260 @@
       </div>
 
       <div class="sidebar-footer">
-        <button class="ghost-button full" data-open="coding-tools-source">Coding Tools MCP · 0.4.3</button>
-        <small>本地状态检查不会调用模型，也不会消耗聊天额度。</small>
+        <button class="nav-item sidebar-settings-button" data-page="settings"><span class="nav-icon">⚙</span><span>设置</span></button>
       </div>
     </aside>
 
     <main class="main-area">
       <header class="topbar">
-        <div><p class="eyebrow" id="pageEyebrow">CONTROL CENTER</p><h1 id="pageTitle">运行总览</h1><p id="pageSubtitle">集中查看本地 MCP、OpenAI Tunnel 与部署环境。</p></div>
-        <div class="top-actions">
-          <button class="icon-button" id="themeToggle" title="切换主题">◐</button>
-          <button class="secondary-button" id="refreshButton">重新检测</button>
-          <button class="primary-button" id="topStartButton">一键启动</button>
+        <div class="topbar-context" aria-live="polite"><p class="eyebrow" id="pageEyebrow">CONTROL CENTER</p><h1 id="pageTitle">运行总览</h1><p id="pageSubtitle">集中查看本地 MCP、OpenAI Tunnel 与部署环境。</p></div>
+        <div class="topbar-search">
+          <span class="topbar-search-icon">⌕</span>
+          <input id="globalSearch" type="search" autocomplete="off" placeholder="搜索（Ctrl+F）" aria-label="搜索页面和功能">
+          <div class="search-results" id="searchResults" hidden></div>
+        </div>
+        <div class="top-actions topbar-tools">
+          <button class="toolbar-icon" id="topActivityButton" data-nav="task" title="活动" aria-label="活动">♧</button>
+          <button class="toolbar-icon" id="topHelpButton" data-nav="guide" title="帮助" aria-label="帮助">?</button>
+          <div class="topbar-more">
+            <button class="toolbar-icon" id="moreMenuButton" title="更多" aria-label="更多">⋮</button>
+            <div class="topbar-menu" id="topbarMenu" hidden>
+              <button data-nav="build"><span>▣</span>构建验证</button>
+              <button data-nav="guide"><span>?</span>接入指南</button>
+              <button data-nav="logs"><span>≡</span>运行日志</button>
+              <button data-nav="settings"><span>⚙</span>偏好设置</button>
+              <button id="themeToggle"><span>◐</span>切换主题</button>
+              <button data-open="coding-tools-source"><span>↗</span>Coding Tools MCP</button>
+            </div>
+          </div>
         </div>
       </header>
 
       <div class="content-viewport">
         <section class="page active" data-page-view="overview">
-          <div class="hero-card">
-            <div class="hero-copy">
-              <span class="soft-badge" id="heroBadge">正在检查运行状态</span>
-              <h2 id="heroTitle">让网页聊天安全访问你的代码目录</h2>
-              <p id="heroText">选择一个工作目录，配置 OpenAI Tunnel，然后由助手完成 MCP 的启动、鉴权、健康检查和故障诊断。</p>
-              <div class="hero-actions">
-                <button class="primary-button large" id="heroStartButton">开始部署</button>
-                <button class="secondary-button large" data-nav="guide">查看接入步骤</button>
+          <div class="hero-card overview-hero" id="overviewHero">
+            <div class="overview-hero-left">
+              <div class="overview-hero-icon ready" id="overviewHeroStatus" aria-hidden="true">✓</div>
+              <div class="hero-copy">
+                <span class="soft-badge" id="heroBadge" hidden>正在检查运行状态</span>
+                <h2 id="heroTitle">正在检查服务状态</h2>
+                <p id="heroText">正在读取 MCP、Tunnel 与工作区状态。</p>
               </div>
             </div>
-            <div class="connection-visual" aria-hidden="true">
-              <div class="node local"><span>LOCAL</span><b>工作目录</b></div>
-              <div class="flow-line"><i></i></div>
-              <div class="node bridge"><span>MCP</span><b>安全桥接</b></div>
-              <div class="flow-line"><i></i></div>
-              <div class="node cloud"><span>WEB</span><b>外部 ChatGPT</b></div>
+            <div class="overview-hero-actions">
+              <button class="secondary-button overview-action" id="refreshButton"><span>↻</span>刷新</button>
+              <button class="primary-button overview-action" id="overviewRestart"><span>↻</span>重新启动</button>
             </div>
           </div>
 
           <div class="status-grid">
-            <article class="status-card"><div class="status-head"><span class="status-symbol blue">N</span><i id="runtimeDot"></i></div><h3>便携运行时</h3><strong id="runtimeStatus">检查中</strong><p id="runtimeMeta">正在检查内置 Python</p></article>
-            <article class="status-card"><div class="status-head"><span class="status-symbol violet">M</span><i id="mcpDot"></i></div><h3>Coding Tools MCP</h3><strong id="mcpStatus">未启动</strong><p id="mcpMeta">127.0.0.1:18765</p></article>
-            <article class="status-card"><div class="status-head"><span class="status-symbol cyan">T</span><i id="tunnelDot"></i></div><h3>OpenAI Tunnel</h3><strong id="tunnelStatus">未连接</strong><p id="tunnelMeta">等待完成配置</p></article>
-            <article class="status-card"><div class="status-head"><span class="status-symbol green">W</span><i id="workspaceDot"></i></div><h3>当前工作目录</h3><strong id="workspaceStatus">未选择</strong><p id="workspaceMeta">仅所选目录可被 MCP 访问</p></article>
+            <article class="status-card overview-status-card">
+              <div class="summary-icon mcp">◇</div>
+              <div class="summary-copy"><div class="summary-title"><h3>MCP</h3><i id="mcpDot"></i></div><strong id="mcpStatus">未启动</strong><p id="mcpMeta">127.0.0.1:18765</p></div>
+            </article>
+            <article class="status-card overview-status-card">
+              <div class="summary-icon tunnel">∩</div>
+              <div class="summary-copy"><div class="summary-title"><h3>Tunnel</h3><i id="tunnelDot"></i></div><strong id="tunnelStatus">未连接</strong><p id="tunnelMeta">等待完成配置</p></div>
+            </article>
+            <article class="status-card overview-status-card">
+              <div class="summary-icon workspace">▱</div>
+              <div class="summary-copy"><div class="summary-title"><h3>工作区</h3><i id="workspaceDot"></i></div><strong id="workspaceStatus">未选择</strong><p id="workspaceMeta">仅所选目录可被 MCP 访问</p></div>
+            </article>
           </div>
 
           <div class="two-column overview-bottom">
-            <article class="panel quick-panel">
-              <div class="panel-title"><div><span class="section-kicker">QUICK ACTIONS</span><h3>常用操作</h3></div></div>
-              <div class="action-list">
-                <button id="overviewRestart"><span class="action-icon">↻</span><span><b>重新启动全部服务</b><small>按正确顺序重启 MCP 与 Tunnel</small></span><i>›</i></button>
-                <button data-nav="workspace"><span class="action-icon">▱</span><span><b>切换工作目录</b><small>切换后自动重新创建运行环境</small></span><i>›</i></button>
-                <button data-nav="guide"><span class="action-icon">?</span><span><b>在网页中创建 MCP</b><small>逐步完成 ChatGPT 连接配置</small></span><i>›</i></button>
-                <button data-open="tunnel-ui"><span class="action-icon">↗</span><span><b>打开 Tunnel 控制台</b><small>查看隧道连接和请求状态</small></span><i>›</i></button>
+            <article class="panel attention-panel">
+              <div class="panel-title"><h3>需要关注</h3></div>
+              <div class="attention-list">
+                <div class="attention-item">
+                  <i class="attention-mark" id="runtimeDot">✓</i>
+                  <span><b id="runtimeStatus">环境检查中</b><small id="runtimeMeta">正在检查内置 Python</small></span>
+                </div>
+                <div class="attention-item">
+                  <i class="attention-mark" id="attentionNetworkDot">✓</i>
+                  <span><b id="attentionNetworkStatus">网络检查中</b><small id="attentionNetworkMeta">正在检测 OpenAI 网络路径</small></span>
+                </div>
+                <div class="attention-item">
+                  <i class="attention-mark" id="attentionKeyDot">✓</i>
+                  <span><b id="attentionKeyStatus">Runtime Key 检查中</b><small id="attentionKeyMeta">正在检查本地安全存储</small></span>
+                </div>
               </div>
             </article>
-            <article class="panel progress-panel">
-              <div class="panel-title"><div><span class="section-kicker">DEPLOYMENT</span><h3>当前任务</h3></div><span class="soft-badge neutral" id="progressBadge">等待操作</span></div>
-              <div class="progress-ring-wrap"><div class="progress-ring" id="progressRing"><span id="progressPercent">0%</span></div><div><b id="progressTitle">尚未开始部署</b><p id="progressMessage">完成部署设置后，点击一键启动。</p></div></div>
-              <div class="progress-track"><i id="progressBar"></i></div>
-              <div class="compact-buttons"><button class="danger-button" id="overviewStop">停止服务</button><button class="secondary-button" data-nav="logs">查看日志</button></div>
+            <article class="panel recent-panel">
+              <div class="panel-title"><h3>最近活动</h3></div>
+              <div class="recent-activity-list" id="overviewRecentActivity"><span class="task-muted">正在读取最近活动…</span></div>
             </article>
+          </div>
+
+          <div class="overview-legacy-controls" hidden aria-hidden="true">
+            <button id="heroStartButton">开始部署</button><button id="topStartButton">一键启动</button><button id="overviewStop">停止服务</button>
+            <span id="progressBadge">等待操作</span><div id="progressRing"><span id="progressPercent">0%</span></div><b id="progressTitle">尚未开始部署</b><p id="progressMessage">等待操作</p><i id="progressBar"></i>
           </div>
         </section>
 
-        <section class="page" data-page-view="deploy">
-          <div class="section-header"><div><span class="section-kicker">DEPLOYMENT WIZARD</span><h2>一键部署设置</h2><p>只填写一次，之后启动、重启和健康检查全部由助手完成。</p></div><div class="step-pill"><span>1</span>配置 <i></i><span>2</span>检查 <i></i><span>3</span>部署</div></div>
-
-          <div class="two-column deploy-grid">
-            <article class="panel">
-              <div class="panel-title"><div><h3>OpenAI Tunnel 身份</h3><p>密钥只在主进程中加密保存，界面与日志不会读取明文。</p></div><span class="security-chip">Windows 加密</span></div>
-              <label class="field"><span>Runtime API Key</span><div class="input-action"><input id="runtimeKeyInput" type="password" autocomplete="off" placeholder="粘贴 Runtime API Key"><button id="saveRuntimeKey">安全保存</button></div><small id="runtimeKeyHint">尚未保存</small></label>
-              <label class="field"><span>Tunnel ID</span><input id="tunnelIdInput" placeholder="例如 tunnel_..."><small>在 OpenAI Platform 的 Tunnels 页面创建或查看。</small></label>
-              <div class="inline-actions"><button class="secondary-button" data-open="openai-runtime-keys">申请 Runtime Key</button><button class="secondary-button" data-open="openai-tunnels">管理 Tunnels</button></div>
-            </article>
-
-            <article class="panel">
-              <div class="panel-title"><div><h3>网络与代理</h3><p>默认自动选择直连、Windows 系统代理或常见本地代理，不再绑定某个代理软件和端口。</p></div></div>
-              <label class="field"><span>代理模式</span><select id="proxyModeSelect"><option value="auto">自动检测（推荐）</option><option value="system">跟随 Windows 系统</option><option value="manual">手动代理</option><option value="direct">强制直连</option></select><small>自动模式会实际验证 OpenAI 网络连通性。</small></label>
-              <label class="field" id="manualProxyField"><span>手动代理地址</span><input id="proxyUrlInput" placeholder="例如 http://127.0.0.1:7890"><small id="proxyHint">仅手动模式需要填写，支持 HTTP/HTTPS 代理。</small></label>
-              <div class="environment-list">
-                <div><i id="envPythonDot"></i><span><b>Python / 便携运行时</b><small id="envPythonText">等待检测</small></span><button id="pythonInstall">安装</button></div>
-                <div><i id="envProxyDot"></i><span><b>当前网络路径</b><small id="envProxyText">等待检测</small></span><button id="proxyDetect">重新检测</button></div>
-              </div>
-            </article>
+        <section class="page connection-page" data-page-view="deploy">
+          <div class="connection-page-header">
+            <h2>连接与服务</h2>
+            <p>管理 MCP、Tunnel 与网络连接</p>
           </div>
 
-          <article class="deploy-footer panel accent-panel">
-            <div><span class="section-kicker">READY TO DEPLOY</span><h3>保存配置并部署完整服务</h3><p id="deploySummary">请选择工作目录并填写 Tunnel 信息。</p></div>
-            <div class="deploy-actions"><button class="secondary-button" id="saveDeploySettings">仅保存配置</button><button class="primary-button large" id="deployNow">保存并开始部署</button></div>
+          <article class="panel connection-card connection-service-card">
+            <div class="connection-card-title">服务</div>
+            <div class="connection-service-row">
+              <div class="connection-service-main">
+                <div class="connection-illustration mcp" aria-hidden="true"><span></span></div>
+                <div class="connection-service-copy">
+                  <div class="connection-service-heading"><h3>MCP 服务</h3><strong id="connectionMcpStatus">检查中</strong></div>
+                  <p id="connectionMcpUrl">正在读取服务地址</p>
+                </div>
+              </div>
+              <div class="connection-actions">
+                <button class="secondary-button" id="connectionInspectHealth">查看状态</button>
+                <button class="primary-button" id="connectionRestartService">重新启动</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel connection-card">
+            <div class="connection-card-title">OpenAI Tunnel</div>
+            <div class="connection-info-row tunnel-row">
+              <div class="connection-illustration tunnel" aria-hidden="true"><span></span></div>
+              <div class="connection-info-cell"><span>Tunnel ID</span><b id="connectionTunnelId">未配置</b></div>
+              <div class="connection-info-cell"><span>Runtime Key</span><b id="connectionRuntimeKey">未配置</b></div>
+              <div class="connection-info-cell"><span>最后同步</span><b id="connectionLastSync">未同步</b></div>
+              <button class="primary-button connection-row-action" id="connectionReconnectTunnel">重新连接</button>
+            </div>
+          </article>
+
+          <article class="panel connection-card">
+            <div class="connection-card-title">网络</div>
+            <div class="connection-info-row network-row">
+              <div class="connection-illustration network" aria-hidden="true"><span>◎</span></div>
+              <div class="connection-info-cell"><span>代理模式</span><b id="connectionProxyMode">自动检测</b></div>
+              <div class="connection-info-cell"><span>当前代理</span><b id="connectionProxyUrl">未配置</b></div>
+              <div class="connection-info-cell"><span>连接延迟</span><b id="connectionProxyLatency">--</b></div>
+              <button class="secondary-button connection-row-action" id="connectionRetestNetwork">重新检测</button>
+            </div>
+          </article>
+
+          <article class="panel connection-card connection-advanced" id="connectionAdvanced">
+            <button class="connection-advanced-toggle" id="connectionAdvancedToggle" type="button" aria-haspopup="dialog">
+              <span>高级设置</span><i aria-hidden="true">›</i>
+            </button>
+            <div class="connection-advanced-body" id="connectionAdvancedBody" hidden>
+              <div class="connection-readonly-table">
+                <div><span>MCP Port</span><b id="connectionMcpPort">--</b></div>
+                <div><span>Health Port</span><b id="connectionHealthPort">--</b></div>
+                <div><span>手动代理 URL</span><b id="connectionManualProxy">未配置</b></div>
+              </div>
+
+              <div class="connection-config-bar">
+                <div><b>连接配置</b><span>修改 Runtime Key、Tunnel ID 与代理设置</span></div>
+                <button class="secondary-button" id="connectionEditConfig" type="button" aria-haspopup="dialog">编辑配置</button>
+              </div>
+
+              <div class="connection-config-editor" id="connectionConfigEditor" hidden>
+                <div class="connection-config-grid">
+                  <label class="field connection-config-wide"><span>Runtime API Key</span><div class="input-action"><input id="runtimeKeyInput" type="password" autocomplete="off" placeholder="输入 Runtime API Key"><button id="saveRuntimeKey">安全保存</button></div><small id="runtimeKeyHint">尚未保存</small></label>
+                  <label class="field"><span>Tunnel ID</span><input id="tunnelIdInput" placeholder="例如 tunnel_..."><small>填写 OpenAI Platform 中创建的 Tunnel ID</small></label>
+                  <label class="field"><span>代理模式</span><select id="proxyModeSelect"><option value="auto">自动检测（推荐）</option><option value="system">使用 Windows 代理</option><option value="manual">手动代理</option><option value="direct">直接连接</option></select><small>仅影响应用访问 OpenAI 的网络请求</small></label>
+                  <label class="field" id="manualProxyField"><span>手动代理 URL</span><input id="proxyUrlInput" placeholder="例如 http://127.0.0.1:7890"><small id="proxyHint">支持 HTTP/HTTPS 代理地址</small></label>
+                </div>
+
+                <div class="environment-list connection-environment-list">
+                  <div><i id="envPythonDot"></i><span><b>Python / 便携运行时</b><small id="envPythonText">正在检查</small></span><button id="pythonInstall">修复</button></div>
+                  <div><i id="envProxyDot"></i><span><b>代理与网络</b><small id="envProxyText">正在检查</small></span><button id="proxyDetect">检测连接</button></div>
+                </div>
+
+                <div class="connection-config-footer">
+                  <p id="deploySummary">正在检查连接配置</p>
+                  <div class="deploy-actions"><button class="secondary-button" id="saveDeploySettings">保存配置</button><button class="primary-button" id="deployNow">保存并启动</button></div>
+                </div>
+                <div class="inline-actions connection-external-links"><button class="secondary-button" data-open="openai-runtime-keys">打开 Runtime Keys</button><button class="secondary-button" data-open="openai-tunnels">打开 Tunnels</button></div>
+              </div>
+            </div>
           </article>
         </section>
 
-        <section class="page" data-page-view="workspace">
-          <div class="section-header"><div><span class="section-kicker">WORKSPACE BOUNDARY</span><h2>工作目录与权限</h2><p>网页只能访问明确授权的项目目录；启用全局规则后，仅额外只读加载指定的 AGENTS.md。</p></div></div>
-          <article class="panel workspace-picker">
-            <div class="folder-illustration">▱</div>
-            <div class="folder-copy"><span>当前允许访问</span><h3 id="selectedWorkspace">尚未选择目录</h3><p>切换目录后，助手会在后台重启 MCP 与 Tunnel，更新访问边界并让 ChatGPT 重新加载项目规则。</p></div>
-            <button class="primary-button" id="chooseWorkspace">选择文件夹</button>
-          </article>
-
-          <article class="panel authorized-roots-panel">
-            <div class="panel-title"><div><h3>额外授权目录</h3><p>无需切换主工作区。添加后，ChatGPT 可以直接读取和修改这些目录中的绝对路径；未授权目录仍会被拒绝。</p></div><button class="secondary-button" id="addAuthorizedRoot">添加授权目录</button></div>
-            <div class="authorized-root-list" id="authorizedRootsList"><span class="task-muted">尚未添加额外授权目录</span></div>
-          </article>
-
-          <article class="panel settings-list global-agents-panel">
-            <div class="panel-title"><div><h3>全局 AGENTS.md</h3><p>为所有项目提供通用规则，项目目录中的规则排在后面并具有更高优先级。</p></div></div>
-            <label class="setting-row"><span><b>注入全局规则</b><small>开启后，规则内容会随 MCP 指令发送到 ChatGPT；需要重新部署后生效。</small></span><input id="globalAgentsToggle" class="toggle" type="checkbox"></label>
-            <div class="global-agents-details"><span id="globalAgentsStatus">当前未启用</span><code id="globalAgentsPath">正在解析全局规则路径…</code></div>
-            <div class="notice warning"><b>受控的只读例外</b><p>助手只会尝试读取该目录中的 AGENTS.override.md 或 AGENTS.md，不会因此开放整个用户目录。</p></div>
-          </article>
-
-          <div class="two-column">
-            <article class="panel">
-              <div class="panel-title"><div><h3>命令权限模式</h3><p>建议普通用户保持安全模式。</p></div></div>
-              <div class="choice-stack">
-                <label class="choice selected"><input type="radio" name="permission" value="safe" checked><span><b>安全模式</b><small>联网、脚本展开和危险操作需要明确授权。</small></span><em>推荐</em></label>
-                <label class="choice"><input type="radio" name="permission" value="trusted"><span><b>可信模式</b><small>减少常规开发操作的确认，但仍保留破坏性检查。</small></span></label>
-              </div>
-            </article>
-            <article class="panel">
-              <div class="panel-title"><div><h3>本地端口</h3><p>只有发生端口冲突时才需要修改。</p></div></div>
-              <div class="port-grid"><label class="field"><span>MCP 服务端口</span><input id="mcpPortInput" type="number" min="1024" max="65535" value="18765"></label><label class="field"><span>Tunnel 控制台端口</span><input id="healthPortInput" type="number" min="1024" max="65535" value="18081"></label></div>
-              <div class="notice blue-notice"><b>仅监听本机</b><p>两个端口均绑定到 127.0.0.1，不会直接暴露给局域网。</p></div>
-            </article>
+        <section class="page workspace-page" data-page-view="workspace">
+          <div class="workspace-page-header">
+            <h2>工作区</h2>
+            <p>管理当前项目目录与权限范围</p>
           </div>
-          <div class="page-footer-actions"><button class="secondary-button" id="saveWorkspace">保存工作区设置</button><button class="primary-button" id="saveWorkspaceRestart">保存并重新部署</button></div>
+
+          <article class="panel workspace-current-card">
+            <div class="workspace-card-heading"><h3>当前工作区</h3></div>
+            <div class="workspace-current-row">
+              <div class="workspace-current-path">
+                <span class="workspace-folder-icon" aria-hidden="true"></span>
+                <strong id="selectedWorkspace" title="">尚未选择目录</strong>
+              </div>
+              <button class="secondary-button workspace-change-button" id="chooseWorkspace">更换目录</button>
+            </div>
+          </article>
+
+          <div class="workspace-layout">
+            <article class="panel workspace-roots-card">
+              <div class="workspace-card-heading"><h3>额外授权目录</h3></div>
+              <div class="authorized-root-list workspace-root-list" id="authorizedRootsList"><span class="task-muted">尚未添加额外授权目录</span></div>
+              <button class="secondary-button workspace-add-root" id="addAuthorizedRoot"><span aria-hidden="true">⊕</span>添加目录</button>
+            </article>
+
+            <div class="workspace-side-stack">
+              <article class="panel workspace-permission-card">
+                <div class="workspace-card-heading"><h3>权限</h3></div>
+                <div class="workspace-permission-row">
+                  <div class="workspace-permission-copy">
+                    <b>安全模式</b>
+                    <small id="workspacePermissionDescription">限制潜在风险操作，提升执行安全性</small>
+                  </div>
+                  <span class="workspace-recommended" id="workspacePermissionRecommended">推荐</span>
+                  <label class="workspace-switch" title="切换安全模式">
+                    <input id="workspaceSafeToggle" type="checkbox" checked aria-label="安全模式">
+                    <span></span>
+                  </label>
+                </div>
+                <div class="workspace-permission-radios" aria-hidden="true">
+                  <label class="choice selected"><input type="radio" name="permission" value="safe" checked><span><b>安全模式</b></span></label>
+                  <label class="choice"><input type="radio" name="permission" value="trusted"><span><b>可信模式</b></span></label>
+                </div>
+              </article>
+
+              <article class="panel workspace-rules-card">
+                <div class="workspace-card-heading"><h3>项目规则</h3></div>
+                <div class="workspace-rule-row">
+                  <span class="workspace-rule-icon" aria-hidden="true">✓</span>
+                  <div class="workspace-rule-copy">
+                    <b>全局 AGENTS.md</b>
+                    <small>启用全局规则文件</small>
+                    <span id="globalAgentsStatus">当前未启用</span>
+                    <code id="globalAgentsPath">正在解析全局规则路径…</code>
+                  </div>
+                  <input id="globalAgentsToggle" class="toggle" type="checkbox" aria-label="启用全局 AGENTS.md">
+                </div>
+                <div class="workspace-rule-row">
+                  <span class="workspace-rule-icon" aria-hidden="true">✓</span>
+                  <div class="workspace-rule-copy">
+                    <b>命令白名单</b>
+                    <small id="workspaceWhitelistNote">当前版本由安全模式统一控制</small>
+                  </div>
+                  <input id="workspaceWhitelistToggle" class="toggle" type="checkbox" checked disabled aria-label="命令白名单由安全模式统一控制">
+                </div>
+
+                <button class="workspace-advanced-toggle" id="workspaceAdvancedToggle" type="button" aria-haspopup="dialog">
+                  <span><i aria-hidden="true">⚙</i>高级权限设置</span><b aria-hidden="true">›</b>
+                </button>
+                <div class="workspace-advanced-body" id="workspaceAdvancedBody" hidden>
+                  <div class="port-grid workspace-port-grid">
+                    <label class="field"><span>MCP 服务端口</span><input id="mcpPortInput" type="number" min="1024" max="65535" value="18765"></label>
+                    <label class="field"><span>Health Port</span><input id="healthPortInput" type="number" min="1024" max="65535" value="18081"></label>
+                  </div>
+                  <div class="notice blue-notice"><b>仅监听本机</b><p>端口绑定到 127.0.0.1，只有发生冲突时才需要修改。</p></div>
+                  <div class="workspace-advanced-actions"><button class="secondary-button" id="saveWorkspace">保存工作区设置</button><button class="primary-button" id="saveWorkspaceRestart">保存并重新部署</button></div>
+                </div>
+              </article>
+            </div>
+          </div>
         </section>
 
         <section class="page" data-page-view="guide">
@@ -177,34 +302,102 @@
           </div>
         </section>
 
-        <section class="page" data-page-view="task">
-          <div class="section-header"><div><span class="section-kicker">RESUMABLE TASK</span><h2>任务执行状态</h2><p>状态保存在当前工作区，刷新网页、切换聊天或 MCP 重启后仍可继续。</p></div><div class="inline-actions"><button class="danger-button" id="clearTaskState">清除状态</button><button class="primary-button" id="refreshTaskState">刷新状态</button></div></div>
-          <div id="taskStateEmpty" class="panel task-empty"><b>当前没有任务状态</b><span>网页模型开始编码任务并调用 task_state_update 后，这里会自动显示。</span></div>
-          <div id="taskStateContent" class="task-dashboard" hidden>
-            <article class="panel task-objective"><span class="section-kicker">CURRENT OBJECTIVE</span><div class="task-title-row"><h3 id="taskObjective">—</h3><span class="soft-badge" id="taskStatus">idle</span></div><p><b>任务 ID：</b><code id="taskId">—</code></p><p><b>当前步骤：</b><span id="taskCurrentStep">—</span></p><p><b>下一步：</b><span id="taskNextStep">—</span></p><p class="task-failure" id="taskFailureRow" hidden><b>失败原因：</b><span id="taskFailure">—</span></p></article>
-            <div class="task-grid">
-              <article class="panel"><div class="panel-title"><h3>执行步骤</h3><span id="taskStepCount">0 / 0</span></div><div class="inline-actions task-controls"><button class="secondary-button" id="pauseTask">暂停</button><button class="secondary-button" id="resumeTask">继续</button><button class="danger-button" id="stopTask">停止</button></div><div class="task-steps" id="taskSteps"></div></article>
-              <article class="panel"><div class="panel-title"><h3>正在执行的命令</h3></div><div class="task-command" id="taskCommand">当前没有运行中的命令</div><div class="panel-title task-subtitle"><h3>最近测试结果</h3></div><div class="task-results" id="taskTests"></div></article>
-            </div>
-            <div class="task-grid">
-              <article class="panel"><div class="panel-title"><h3>修改过的文件</h3><span id="taskFileCount">0</span></div><div class="task-files" id="taskFiles"></div></article>
-              <article class="panel"><div class="panel-title"><h3>最近构建报告</h3></div><div class="task-build" id="taskBuild"></div></article>
-            </div>
+        <section class="page activity-page" data-page-view="task">
+          <div class="activity-page-header"><h2>活动</h2><p>查看任务进度与构建状态</p></div>
+          <div class="activity-tabs" role="tablist" aria-label="活动视图">
+            <button class="activity-tab active" type="button" role="tab" aria-selected="true" data-activity-tab="task">任务</button>
+            <button class="activity-tab" type="button" role="tab" aria-selected="false" data-activity-tab="build">构建</button>
           </div>
-          <article class="panel task-history-panel"><div class="panel-title"><h3>任务历史</h3><button class="secondary-button" id="refreshTaskHistory">刷新历史</button></div><div class="task-history" id="taskHistory"><span class="task-muted">暂无历史任务</span></div></article>
-          <article class="panel performance-panel"><div class="panel-title"><div><h3>性能分析</h3><span class="task-muted">区分本机执行耗时和模型 / Tunnel 等待时间</span></div><div class="inline-actions"><button class="secondary-button" id="refreshPerformance">刷新</button><button class="danger-button" id="clearPerformance">清空</button></div></div><div class="performance-metrics" id="performanceMetrics"><span class="task-muted">暂无性能记录</span></div><div class="performance-timeline" id="performanceTimeline"></div></article>
+          <div class="activity-tab-panel active" data-activity-panel="task">
+            <div id="taskStateEmpty" class="panel activity-empty-state"><b>当前没有任务状态</b><span>开始执行 Coding 任务后，这里会显示实时步骤、修改文件与测试结果。</span><button class="secondary-button" id="refreshTaskState">刷新状态</button></div>
+            <div id="taskStateContent" class="activity-task-content" hidden>
+              <article class="panel activity-current-task">
+                <div class="activity-card-title"><h3>当前任务</h3><button class="activity-refresh-link" id="activityRefreshTask" type="button">刷新</button></div>
+                <div class="activity-task-heading"><span class="activity-status-pill" id="taskStatus">等待</span><h3 id="taskObjective">—</h3></div>
+                <div class="activity-task-meta"><div><span>当前步骤</span><b id="taskCurrentStep">—</b></div><div><span>下一步</span><b id="taskNextStep">—</b></div></div>
+                <p class="activity-task-failure" id="taskFailureRow" hidden><b>失败原因</b><span id="taskFailure">—</span></p>
+                <div class="activity-progress-row"><div class="activity-progress-track"><i id="taskProgressBar"></i></div><span id="taskStepCount">0 / 0</span></div>
+                <div class="activity-task-actions"><div class="activity-task-control-group"><button class="secondary-button" id="pauseTask"><span aria-hidden="true">Ⅱ</span>暂停</button><button class="secondary-button" id="resumeTask" hidden><span aria-hidden="true">▶</span>继续</button><button class="secondary-button" id="stopTask"><span aria-hidden="true">□</span>停止</button></div><button class="primary-button" id="taskDetailsToggle" type="button" aria-haspopup="dialog"><span aria-hidden="true">↗</span>查看详情</button></div>
+                <div class="activity-task-details" id="taskDetailsPanel" hidden>
+                  <div class="activity-detail-id"><span>任务 ID</span><code id="taskId">—</code></div>
+                  <div class="activity-detail-grid">
+                    <section><div class="activity-detail-heading"><h4>执行步骤</h4></div><div class="task-steps" id="taskSteps"></div></section>
+                    <section><div class="activity-detail-heading"><h4>正在执行的命令</h4></div><div class="task-command" id="taskCommand">当前没有运行中的命令</div></section>
+                    <section class="activity-detail-wide"><div class="activity-detail-heading"><h4>最近构建报告</h4></div><div class="task-build" id="taskBuild"></div></section>
+                    <section class="activity-detail-wide"><div class="activity-detail-heading"><h4>任务历史</h4><button class="secondary-button compact" id="refreshTaskHistory">刷新历史</button></div><div class="task-history" id="taskHistory"><span class="task-muted">暂无历史任务</span></div></section>
+                  </div>
+                  <div class="activity-detail-maintenance"><button class="danger-button" id="clearTaskState">清除当前任务状态</button></div>
+                </div>
+              </article>
+              <div class="activity-recent-grid">
+                <article class="panel activity-recent-card"><div class="activity-card-title"><h3>最近修改</h3><span id="taskFileCount">0</span></div><div class="task-files activity-file-list" id="taskFiles"></div></article>
+                <article class="panel activity-recent-card"><div class="activity-card-title"><h3>最近测试</h3></div><div class="task-results activity-test-list" id="taskTests"></div></article>
+              </div>
+            </div>
+            <article class="panel activity-performance-panel"><button class="activity-performance-toggle" id="activityPerformanceToggle" type="button" aria-haspopup="dialog"><span><i aria-hidden="true">›</i>性能详情</span><small>本机执行、等待与缓存情况</small></button><div class="activity-performance-body" id="activityPerformanceBody" hidden><div class="activity-performance-actions"><button class="secondary-button" id="refreshPerformance">刷新</button><button class="danger-button" id="clearPerformance">清空</button></div><div class="performance-metrics" id="performanceMetrics"><span class="task-muted">暂无性能记录</span></div><div class="performance-timeline" id="performanceTimeline"></div></div></article>
+          </div>
+          <div class="activity-tab-panel" data-activity-panel="build" hidden>
+            <div class="activity-build-actions"><div><h3>构建验证</h3><p>识别项目、运行测试与构建，并校验产物。</p></div><div><button class="secondary-button" id="inspectBuild">识别项目</button><button class="primary-button" id="runBuild">开始验证</button></div></div>
+            <div class="activity-build-grid">
+              <article class="panel activity-build-settings"><div class="activity-card-title"><h3>项目与命令</h3><span class="activity-build-chip" id="buildProjectType">未识别</span></div><label class="field"><span>测试命令</span><input id="buildTestCommand" placeholder="自动检测"></label><label class="field"><span>构建命令</span><input id="buildCommand" placeholder="自动检测"></label><label class="field"><span>产物目录（逗号分隔）</span><input id="buildArtifacts" placeholder="dist, build"></label><div class="activity-build-options"><label><input id="buildRunTests" type="checkbox" checked><span><b>执行测试</b><small>测试失败时阻止构建</small></span></label><label><input id="buildRunBuild" type="checkbox" checked><span><b>执行构建</b><small>构建成功后验证产物</small></span></label></div></article>
+              <article class="panel activity-build-console-card"><div class="activity-card-title"><h3>实时进度</h3><span id="buildStatus">等待开始</span></div><pre class="build-console" id="buildConsole">尚未执行构建验证。</pre></article>
+            </div>
+            <article class="panel activity-build-report-card"><div class="activity-card-title"><h3>构建报告</h3><span id="buildReportStatus">—</span></div><div class="build-report-grid" id="buildReport"><span class="task-muted">完成验证后显示测试、构建、版本、产物和 SHA256。</span></div></article>
+          </div>
         </section>
 
-        <section class="page" data-page-view="build">
-          <div class="section-header"><div><span class="section-kicker">BUILD & VERIFY</span><h2>构建与验证</h2><p>识别项目、运行测试和构建、检查产物并计算 SHA256。</p></div><div class="inline-actions"><button class="secondary-button" id="inspectBuild">识别项目</button><button class="primary-button" id="runBuild">开始验证</button></div></div>
-          <div class="two-column"><article class="panel"><div class="panel-title"><h3>项目与命令</h3><span class="soft-badge" id="buildProjectType">未识别</span></div><label class="field"><span>测试命令</span><input id="buildTestCommand" placeholder="自动检测"></label><label class="field"><span>构建命令</span><input id="buildCommand" placeholder="自动检测"></label><label class="field"><span>产物目录（逗号分隔）</span><input id="buildArtifacts" placeholder="dist, build"></label><div class="choice-stack"><label class="choice"><input id="buildRunTests" type="checkbox" checked><span><b>执行测试</b><small>测试失败时阻止构建。</small></span></label><label class="choice"><input id="buildRunBuild" type="checkbox" checked><span><b>执行构建</b><small>构建成功后验证产物。</small></span></label></div></article><article class="panel"><div class="panel-title"><h3>实时进度</h3><span id="buildStatus">等待开始</span></div><pre class="build-console" id="buildConsole">尚未执行构建验证。</pre></article></div>
-          <article class="panel"><div class="panel-title"><h3>构建报告</h3><span id="buildReportStatus">—</span></div><div class="build-report-grid" id="buildReport"><span class="task-muted">完成验证后显示测试、构建、版本、产物和 SHA256。</span></div></article>
-        </section>
+        <section class="page diagnostic-page" data-page-view="health">
+          <div class="diagnostic-page-header">
+            <h2>诊断</h2>
+            <p>检测系统状态并快速修复问题</p>
+          </div>
 
-        <section class="page" data-page-view="health">
-          <div class="section-header"><div><span class="section-kicker">FIRST RUN DOCTOR</span><h2>系统体检与修复</h2><p>检查工作区、运行环境、密钥、端口、MCP 和 Tunnel。</p></div><div class="inline-actions"><button class="secondary-button" id="inspectHealth">重新体检</button><button class="primary-button" id="repairHealth">一键修复</button></div></div>
-          <article class="panel"><div class="panel-title"><h3>检查结果</h3><span class="soft-badge" id="healthSummary">尚未检查</span></div><div class="health-list" id="healthList"><span class="task-muted">进入本页后自动开始体检。</span></div></article>
-          <div class="notice warning"><b>安全边界</b><p>一键修复只会调整助手自身配置、认证 Token 并重启助手管理的服务；不会结束未知进程，也不会替你填写 Runtime Key 或 Tunnel ID。</p></div>
+          <article class="panel diagnostic-status-card">
+            <div class="diagnostic-card-heading">
+              <h3>系统状态</h3>
+              <button class="secondary-button diagnostic-recheck" id="inspectHealth"><span aria-hidden="true">↻</span>重新检测</button>
+            </div>
+            <div class="diagnostic-status-grid">
+              <div class="diagnostic-status-item" id="diagnosticWorkspace"><i>•</i><span><b>工作区</b><small>检测中</small></span></div>
+              <div class="diagnostic-status-item" id="diagnosticRuntime"><i>•</i><span><b>Python Runtime</b><small>检测中</small></span></div>
+              <div class="diagnostic-status-item" id="diagnosticMcp"><i>•</i><span><b>MCP</b><small>检测中</small></span></div>
+              <div class="diagnostic-status-item" id="diagnosticTunnel"><i>•</i><span><b>Tunnel</b><small>检测中</small></span></div>
+              <div class="diagnostic-status-item" id="diagnosticProxy"><i>•</i><span><b>Proxy</b><small>检测中</small></span></div>
+            </div>
+          </article>
+
+          <article class="panel diagnostic-issue-card pending" id="diagnosticIssueCard">
+            <div class="diagnostic-issue-icon" id="diagnosticIssueIcon" aria-hidden="true">…</div>
+            <div class="diagnostic-issue-copy">
+              <h3 id="diagnosticIssueCount">正在检测</h3>
+              <b id="diagnosticIssueTitle">正在检查系统状态</b>
+              <p id="diagnosticIssueDetail">检测完成后会显示需要处理的项目。</p>
+            </div>
+            <div class="diagnostic-issue-actions">
+              <button class="primary-button" id="repairHealth"><span aria-hidden="true">🛠</span>尝试修复</button>
+              <button class="secondary-button" id="diagnosticDetailsToggle" type="button" aria-haspopup="dialog">查看详情</button>
+            </div>
+          </article>
+
+          <article class="panel diagnostic-details" id="diagnosticDetails" hidden>
+            <div class="diagnostic-card-heading"><div><h3>诊断详情</h3><p>完整检查项与本次自动修复记录</p></div><span class="soft-badge" id="healthSummary">尚未检查</span></div>
+            <div class="health-list diagnostic-health-list" id="healthList"><span class="task-muted">进入本页后自动开始检测。</span></div>
+            <div class="diagnostic-repair-actions" id="diagnosticRepairActions" hidden></div>
+            <div class="notice warning diagnostic-safety-note"><b>安全边界</b><p>自动修复只会调整助手自身配置、认证 Token 并重启助手管理的服务；不会结束未知进程，也不会替你填写 Runtime Key 或 Tunnel ID。</p></div>
+          </article>
+
+          <article class="panel diagnostic-log-card">
+            <div class="diagnostic-log-heading">
+              <h3>日志</h3>
+              <div class="diagnostic-log-filters" role="tablist" aria-label="诊断日志筛选">
+                <button class="diagnostic-log-filter active" type="button" data-diagnostic-log-filter="all">全部</button>
+                <button class="diagnostic-log-filter" type="button" data-diagnostic-log-filter="error">错误</button>
+                <button class="diagnostic-log-filter" type="button" data-diagnostic-log-filter="warn">警告</button>
+                <button class="diagnostic-log-filter" type="button" data-diagnostic-log-filter="info">信息</button>
+              </div>
+            </div>
+            <div class="diagnostic-log-output" id="diagnosticLogOutput"><div class="diagnostic-log-empty">正在读取日志…</div></div>
+          </article>
         </section>
 
         <section class="page" data-page-view="logs">
@@ -223,12 +416,19 @@
             <div class="setting-row"><span><b>当前版本</b><small id="currentVersionText">正在读取版本信息</small></span><span class="security-chip" id="updateArchitecture">—</span></div>
             <div class="setting-row"><span><b id="updateStatusTitle">尚未检查更新</b><small id="updateStatusText">应用会定期检查 GitHub 最新稳定版本，也可以立即手动检查。</small></span><div class="inline-actions"><button class="secondary-button" id="downloadUpdateButton" hidden>下载更新</button><button class="primary-button" id="installUpdateButton" hidden>安装并重启</button></div></div>
             <div class="update-progress" id="updateProgress" hidden><div><span>正在下载并验证更新</span><b id="updateProgressPercent">0%</b></div><progress id="updateProgressBar" max="100" value="0"></progress></div>
-            <details class="update-release-notes" id="updateReleaseNotes" hidden><summary>查看版本说明</summary><p id="updateReleaseNotesText"></p></details>
+            <div class="update-release-notes" id="updateReleaseNotes" hidden><button class="secondary-button" id="updateReleaseNotesButton" type="button" aria-haspopup="dialog">查看版本说明</button><div class="update-release-notes-panel" id="updateReleaseNotesPanel" hidden><p id="updateReleaseNotesText"></p></div></div>
           </article>
           <article class="panel about-panel"><div class="brand-mark large"><span></span><span></span><span></span></div><div><h3>网页 MCP 助手 <span id="aboutVersion">—</span></h3><p>用于管理 Coding Tools MCP 与 OpenAI Tunnel。底层 Coding Tools MCP 遵循 Apache License 2.0。</p></div><button class="secondary-button" data-open="coding-tools-source">查看上游项目</button></article>
         </section>
       </div>
     </main>
+  </div>
+  <div class="app-modal" id="appModal" hidden aria-hidden="true">
+    <div class="app-modal-backdrop" data-modal-close></div>
+    <section class="app-modal-dialog" id="appModalDialog" role="dialog" aria-modal="true" aria-labelledby="appModalTitle" tabindex="-1">
+      <header class="app-modal-header"><h2 id="appModalTitle">详情</h2><button class="app-modal-close" id="appModalClose" type="button" data-modal-close aria-label="关闭弹窗">×</button></header>
+      <div class="app-modal-body" id="appModalBody"></div>
+    </section>
   </div>
   <div class="toast-stack" id="toastStack"></div>
   <div class="busy-overlay" id="busyOverlay"><div class="loader"></div><b>正在处理</b><span>请不要重复点击操作按钮</span></div>

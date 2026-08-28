@@ -23,17 +23,17 @@
 
 body[data-theme="light"] {
   color-scheme: light;
-  --bg: #edf1f7;
-  --sidebar: #f8faff;
+  --bg: #f4f6f9;
+  --sidebar: #fbfcfe;
   --surface: #ffffff;
-  --surface-2: #f6f8fc;
-  --surface-3: #eef2f8;
-  --border: rgba(21,32,51,.09);
-  --border-strong: rgba(21,32,51,.16);
-  --text: #172033;
-  --muted: #677286;
-  --muted-2: #8994a6;
-  --shadow: 0 22px 60px rgba(42,55,80,.12);
+  --surface-2: #f7f9fc;
+  --surface-3: #eef2f7;
+  --border: rgba(28,39,56,.10);
+  --border-strong: rgba(28,39,56,.16);
+  --text: #1c2430;
+  --muted: #657080;
+  --muted-2: #8b94a2;
+  --shadow: 0 12px 34px rgba(42,55,80,.08);
 }
 
 * { box-sizing: border-box; }
@@ -48,8 +48,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px 22px; }
 .brand strong { display: block; font-size: 15px; letter-spacing: .2px; }
 .brand small { display: block; margin-top: 3px; color: var(--muted-2); font-size: 10px; text-transform: uppercase; letter-spacing: 1.4px; }
-.brand-mark { position: relative; display: grid; place-items: center; width: 38px; height: 38px; flex: 0 0 auto; border-radius: 12px; background: linear-gradient(145deg,#7c90ff,#7158e9 60%,#3cd2d9); box-shadow: 0 10px 28px rgba(101,91,232,.34); overflow: hidden; }
-.brand-mark span { position: absolute; width: 19px; height: 5px; border: 2px solid rgba(255,255,255,.88); border-left: 0; border-right: 0; transform: rotate(-35deg); }
+.brand-mark { position: relative; display: grid; place-items: center; width: 38px; height: 38px; flex: 0 0 auto; border-radius: 12px; background: url("../electron/app-icon.png") center/contain no-repeat; box-shadow: 0 10px 28px rgba(101,91,232,.34); overflow: hidden; }
+.brand-mark span { display: none; }
 .brand-mark span:nth-child(2) { transform: rotate(35deg); width: 14px; }
 .brand-mark span:nth-child(3) { width: 5px; height: 5px; border: 0; border-radius: 50%; background: #fff; }
 .brand-mark.large { width: 54px; height: 54px; border-radius: 16px; }
@@ -121,7 +121,7 @@ body[data-theme="light"] .node { background: rgba(255,255,255,.8); }
 .flow-line i { position: absolute; top: -2px; width: 5px; height: 5px; border-radius: 50%; background: #b6c1ff; animation: flow 1.8s linear infinite; box-shadow: 0 0 10px #8797ff; }
 @keyframes flow { from { left: 0; } to { left: calc(100% - 5px); } }
 
-.status-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 13px; margin-top: 14px; }
+.status-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 13px; margin-top: 14px; }
 .status-card { padding: 17px 18px; box-shadow: none; }
 .status-head { display: flex; justify-content: space-between; align-items: center; }
 .status-symbol { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; font-size: 11px; font-weight: 900; }
@@ -338,4 +338,4 @@ body[data-theme="light"] .log-line span { color: #3e4859; }
 
 /* Compact Windows management window */
 html,body{background:transparent!important}.manager-window-bar{position:fixed;z-index:200;top:8px;left:8px;right:8px;display:flex;height:38px;align-items:center;justify-content:space-between;padding:0 10px 0 16px;border:1px solid #dedede;border-bottom:0;border-radius:18px 18px 0 0;color:#3d3d3d;background:#fff;font-size:12px;font-weight:700;-webkit-app-region:drag}.manager-window-bar button{display:grid;width:28px;height:28px;place-items:center;border:0;border-radius:8px;color:#555;background:transparent;font-size:20px;cursor:pointer;-webkit-app-region:no-drag}.manager-window-bar button:hover{color:#fff;background:#e25454}.app-shell{position:fixed!important;inset:46px 8px 8px!important;width:auto!important;height:auto!important;overflow:hidden;border:1px solid #dedede;border-top:0;border-radius:0 0 18px 18px;background:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28)}body[data-theme="dark"] .manager-window-bar{color:#ececec;border-color:#343434;background:#212121}body[data-theme="dark"] .app-shell{border-color:#343434;background:#212121}.sidebar{background:#f7f7f8!important}.main-area{background:#fff!important}body[data-theme="dark"] .sidebar{background:#171717!important}body[data-theme="dark"] .main-area{background:#212121!important}.nav-item.active{color:#fff!important;background:#202123!important}.primary-button{background:#202123!important;box-shadow:none!important}.topbar{background:rgba(255,255,255,.97)!important}body[data-theme="dark"] .topbar{background:rgba(33,33,33,.97)!important}
-.boot-screen{position:fixed;z-index:190;inset:46px 8px 8px;display:grid;place-items:center;align-content:center;gap:9px;border:1px solid #dedede;border-top:0;border-radius:0 0 18px 18px;color:#252525;background:#fff;opacity:0;visibility:hidden;transition:opacity .18s ease-out,visibility .18s ease-out}.boot-screen b{margin-top:9px;font-size:14px}.boot-screen small{color:#777;font-size:10px}.boot-screen>i{width:28px;height:3px;margin-top:8px;overflow:hidden;border-radius:99px;background:#ececec}.boot-screen>i::after{content:"";display:block;width:45%;height:100%;border-radius:inherit;background:#6767ff;animation:boot-progress .8s ease-in-out infinite alternate}.boot-logo{position:relative;width:54px;height:54px;border-radius:16px;background:linear-gradient(135deg,#796dff,#596bff 54%,#36d4d7);box-shadow:0 14px 38px rgba(83,91,255,.28)}.boot-logo span{position:absolute;left:15px;right:15px;height:3px;border-radius:4px;background:#fff;transform:rotate(-38deg)}.boot-logo span:nth-child(1){top:18px}.boot-logo span:nth-child(2){top:25px}.boot-logo span:nth-child(3){top:32px}.booting .boot-screen{opacity:1;visibility:visible}.booting .app-shell{opacity:0;visibility:hidden}.booted .app-shell{animation:manager-ready .2s ease-out both}body[data-theme="dark"] .boot-screen{color:#f1f1f1;border-color:#343434;background:#212121}body[data-theme="dark"] .boot-screen small{color:#a3a3a3}body[data-theme="dark"] .boot-screen>i{background:#343434}@keyframes boot-progress{from{transform:translateX(-70%)}to{transform:translateX(125%)}}@keyframes manager-ready{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){.boot-screen,.app-shell{transition:none!important;animation:none!important}.boot-screen>i::after{animation:none!important;transform:none!important;width:100%}}
+.boot-screen{position:fixed;z-index:190;inset:46px 8px 8px;display:grid;place-items:center;align-content:center;gap:9px;border:1px solid #dedede;border-top:0;border-radius:0 0 18px 18px;color:#252525;background:#fff;opacity:0;visibility:hidden;transition:opacity .18s ease-out,visibility .18s ease-out}.boot-screen b{margin-top:9px;font-size:14px}.boot-screen small{color:#777;font-size:10px}.boot-screen>i{width:28px;height:3px;margin-top:8px;overflow:hidden;border-radius:99px;background:#ececec}.boot-screen>i::after{content:"";display:block;width:45%;height:100%;border-radius:inherit;background:#6767ff;animation:boot-progress .8s ease-in-out infinite alternate}.boot-logo{position:relative;width:54px;height:54px;border-radius:16px;background:url("../electron/app-icon.png") center/contain no-repeat;box-shadow:0 14px 38px rgba(83,91,255,.28)}.boot-logo span{display:none}.booting .boot-screen{opacity:1;visibility:visible}.booting .app-shell{opacity:0;visibility:hidden}.booted .app-shell{animation:manager-ready .2s ease-out both}body[data-theme="dark"] .boot-screen{color:#f1f1f1;border-color:#343434;background:#212121}body[data-theme="dark"] .boot-screen small{color:#a3a3a3}body[data-theme="dark"] .boot-screen>i{background:#343434}@keyframes boot-progress{from{transform:translateX(-70%)}to{transform:translateX(125%)}}@keyframes manager-ready{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){.boot-screen,.app-shell{transition:none!important;animation:none!important}.boot-screen>i::after{animation:none!important;transform:none!important;width:100%}}
