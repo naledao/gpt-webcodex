@@ -74,6 +74,7 @@
             </div>
             <div class="overview-hero-actions">
               <button class="secondary-button overview-action" id="refreshButton"><span>↻</span>刷新</button>
+              <button class="danger-button overview-action" id="overviewStop" type="button" title="服务当前未运行" disabled><span aria-hidden="true">□</span>停止服务</button>
               <button class="primary-button overview-action" id="overviewRestart"><span>↻</span>重新启动</button>
             </div>
           </div>
@@ -118,7 +119,7 @@
           </div>
 
           <div class="overview-legacy-controls" hidden aria-hidden="true">
-            <button id="heroStartButton">开始部署</button><button id="topStartButton">一键启动</button><button id="overviewStop">停止服务</button>
+            <button id="heroStartButton">开始部署</button><button id="topStartButton">一键启动</button>
             <span id="progressBadge">等待操作</span><div id="progressRing"><span id="progressPercent">0%</span></div><b id="progressTitle">尚未开始部署</b><p id="progressMessage">等待操作</p><i id="progressBar"></i>
           </div>
         </section>

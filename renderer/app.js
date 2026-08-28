@@ -18,11 +18,19 @@ function createPreviewApi() {
   };
   const updatePreview = { currentVersion: '0.1.9', platform: 'win32', architecture: 'x64', canUpdate: false, capabilityReason: '静态预览模式不会安装更新。', phase: 'idle', available: false, downloaded: false, progress: 0, latest: null, error: '' };
   const ok = (data) => Promise.resolve({ ok: true, data });
+  const setPreviewRuntime = (running) => {
+    snapshot.status.runtimeRunning = running;
+    snapshot.status.tunnelRunning = running;
+    snapshot.status.fullyReady = running;
+    snapshot.environment.ports.mcpListening = running;
+    snapshot.environment.ports.tunnelListening = running;
+    return ok(snapshot);
+  };
   return {
     snapshot: () => ok(snapshot), chooseWorkspace: () => ok(snapshot.settings.workspace), switchWorkspace: (workspace) => { snapshot.settings.workspace=workspace; return ok(snapshot); }, updateAuthorizedRoots: (roots) => { snapshot.settings.authorizedRoots=roots; return ok(snapshot); }, closeManager: () => ok(true),
     saveSettings: (patch) => { Object.assign(snapshot.settings, patch); return ok(snapshot.settings); },
     saveRuntimeKey: () => ok(snapshot.secrets), removeRuntimeKey: () => ok(snapshot.secrets), regenerateMcpToken: () => ok(snapshot.secrets),
-    start: () => ok(snapshot), stop: () => ok(snapshot), restart: () => ok(snapshot),
+    start: () => setPreviewRuntime(true), stop: () => setPreviewRuntime(false), restart: () => setPreviewRuntime(true),
     logs: () => ok([{ time: new Date().toISOString(), level: 'info', message: '静态界面预览模式' }]), clearLogs: () => ok(true),
     taskState: () => ok({ exists: false, state: null }), clearTaskState: () => ok(true), pauseTask: () => ok({}), resumeTask: () => ok({}), stopTask: () => ok({}), taskHistory: () => ok([]), performanceTrace: () => ok(null), clearPerformanceTrace: () => ok(true),
     inspectBuild: () => ok({ type: 'electron', name: 'demo', version: '0.1.0', testCommand: 'npm test', buildCommand: 'npm run dist', artifacts: ['dist'] }), runBuild: () => ok({ overallStatus: 'passed', project: { type: 'electron', name: 'demo', version: '0.1.0' }, testResult: { status: 'passed' }, buildResult: { status: 'passed' }, artifacts: [] }), inspectHealth: () => ok({ healthy: true, checks: [] }), repairHealth: () => ok({ healthy: true, checks: [], actions: [], unresolved: [] }),
@@ -141,6 +149,16 @@ function setBusy(value, overlay = false) {
     const element = $(selector);
     if (element) element.disabled = value;
   });
+  syncRuntimeActionAvailability();
+}
+
+function syncRuntimeActionAvailability() {
+  const stopButton = $('#overviewStop');
+  if (!stopButton) return;
+  const status = state.snapshot?.status;
+  const runtimeActive = Boolean(status?.runtimeRunning || status?.tunnelRunning);
+  stopButton.disabled = state.busy || !runtimeActive;
+  stopButton.title = runtimeActive ? '停止 MCP 与 Tunnel 服务' : '服务当前未运行';
 }
 
 function setDot(element, status) {
@@ -727,6 +745,7 @@ function renderSnapshot(snapshot, options = {}) {
   heroState.textContent = ready ? '✓' : partial ? '!' : '×';
   $('#heroStartButton').textContent = ready ? '重新部署' : '开始部署';
   $('#topStartButton').textContent = ready ? '重新部署' : '一键启动';
+  syncRuntimeActionAvailability();
 
   const networkOk = Boolean(environment.proxy?.reachable);
   const keyOk = Boolean(secrets.runtimeApiKey);
@@ -1323,6 +1342,7 @@ function applyHeartbeat(status) {
   heroState?.classList.remove('ready', 'warn', 'error');
   heroState?.classList.add(ready ? 'ready' : partial ? 'warn' : 'error');
   if (heroState) heroState.textContent = ready ? '✓' : partial ? '!' : '×';
+  syncRuntimeActionAvailability();
 }
 
 async function loadLogs() {
