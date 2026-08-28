@@ -17,7 +17,19 @@ const RELEASES_API = 'https://api.github.com/repos/naledao/gpt-webcodex/releases
 const UPDATE_HELPER_FLAG = '--web-mcp-update-restart-helper';
 const CHECK_CACHE_MS = 15 * 60 * 1000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
+const DOWNLOAD_MAX_ATTEMPTS = 6;
+const DOWNLOAD_RETRY_BASE_MS = 1_000;
 const MAX_ASSET_BYTES = 512 * 1024 * 1024;
+const RETRYABLE_DOWNLOAD_CODES = new Set([
+  'ECONNABORTED', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'EPIPE',
+  'ETIMEDOUT', 'EAI_AGAIN', 'ENETDOWN', 'ENETRESET', 'ENETUNREACH',
+  'ERR_DOWNLOAD_INCOMPLETE', 'ERR_HTTP2_GOAWAY_SESSION', 'ERR_HTTP2_STREAM_CANCEL',
+  'ERR_STREAM_PREMATURE_CLOSE'
+]);
+const RETRYABLE_HTTP_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+const DISCARD_PART_CODES = new Set([
+  'ERR_DOWNLOAD_INTEGRITY', 'ERR_INVALID_CONTENT_RANGE', 'ERR_INVALID_RESUME_STATUS'
+]);
 const ARCHITECTURES = Object.freeze({
   x64: { asset: 'web-mcp-assistant-linux-x64', machine: 62 },
   arm64: { asset: 'web-mcp-assistant-linux-arm64', machine: 183 }
@@ -118,6 +130,42 @@ async function defaultAtomicReplace(source, target) {
   await fsp.rename(source, target);
 }
 
+function errorCode(error) {
+  return String(error?.code || error?.cause?.code || 'ERR_DOWNLOAD_FAILED');
+}
+
+function retryableDownloadError(error) {
+  const code = errorCode(error);
+  if (RETRYABLE_DOWNLOAD_CODES.has(code)) return true;
+  if (code === 'ERR_GITHUB_HTTP_STATUS' && RETRYABLE_HTTP_STATUS.has(Number(error?.statusCode))) return true;
+  return /socket hang up|premature close|connection (?:reset|closed)|网络请求超时|响应读取超时/i.test(String(error?.message || ''));
+}
+
+function incompleteDownload(received, expected) {
+  const error = new Error(`下载提前结束：期望 ${expected}，实际 ${received}。`);
+  error.code = 'ERR_DOWNLOAD_INCOMPLETE';
+  return error;
+}
+
+function contentRange(value) {
+  const match = String(value || '').match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
+  if (!match) return null;
+  return {
+    start: Number(match[1]),
+    end: Number(match[2]),
+    total: match[3] === '*' ? null : Number(match[3])
+  };
+}
+
+async function writeAll(file, buffer, position) {
+  let offset = 0;
+  while (offset < buffer.length) {
+    const { bytesWritten } = await file.write(buffer, offset, buffer.length - offset, position + offset);
+    if (!bytesWritten) throw new Error('无法继续写入更新暂存文件。');
+    offset += bytesWritten;
+  }
+}
+
 class UpdateService {
   constructor(options = {}) {
     this.currentVersion = options.currentVersion || packageJson.version;
@@ -141,6 +189,9 @@ class UpdateService {
     this.logFile = options.logFile || updateLogFile();
     this.managerStateDir = options.managerStateDir || stateRoot();
     this.now = options.now || (() => Date.now());
+    this.sleep = options.sleep || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    this.downloadMaxAttempts = Math.max(1, Number(options.downloadMaxAttempts) || DOWNLOAD_MAX_ATTEMPTS);
+    this.downloadRetryBaseMs = Math.max(0, Number(options.downloadRetryBaseMs ?? DOWNLOAD_RETRY_BASE_MS));
   }
 
   progress(stage, percent, message, extra = {}) {
@@ -211,7 +262,10 @@ class UpdateService {
       staged,
       stagedVersion: staged ? saved.stagedVersion || '' : '',
       phase: saved.phase || 'idle',
-      error: saved.error || ''
+      error: saved.error || '',
+      errorCode: saved.errorCode || '',
+      downloadReceived: Number(saved.downloadReceived) || 0,
+      downloadAttempt: Number(saved.downloadAttempt) || 0
     };
   }
 
@@ -290,42 +344,115 @@ class UpdateService {
     if (!version) throw new Error('待下载版本无效。');
     const directory = path.join(this.updateRoot, `v${version}`);
     const destination = path.join(directory, saved.asset.name);
-    const temporary = `${destination}.${process.pid}.part`;
+    const temporary = `${destination}.${saved.asset.sha256.slice(0, 12)}.part`;
     await fsp.mkdir(directory, { recursive: true, mode: 0o700 });
-    await fsp.rm(temporary, { force: true });
-    this.writeState({ phase: 'downloading', error: '' });
-    this.progress('downloading', 0, `正在下载 ${saved.asset.name}`, { received: 0, total: saved.asset.size });
+    if (options.force) await fsp.rm(temporary, { force: true });
+    let received = 0;
+    try {
+      received = (await fsp.stat(temporary)).size;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    if (received > saved.asset.size) {
+      await fsp.rm(temporary, { force: true });
+      received = 0;
+    }
+    const initialPercent = Math.min(99, Math.floor((received / saved.asset.size) * 100));
+    this.writeState({ phase: 'downloading', error: '', errorCode: '', downloadReceived: received, downloadAttempt: 0 });
+    this.progress('downloading', initialPercent, received
+      ? `正在从 ${received} 字节处继续下载 ${saved.asset.name}`
+      : `正在下载 ${saved.asset.name}`, { received, total: saved.asset.size, resumed: received > 0 });
 
     let output;
     try {
       const proxyUrl = await this.proxyUrl();
-      const response = await this.requestStream(saved.asset.downloadUrl, {
-        proxyUrl,
-        timeoutMs: DOWNLOAD_TIMEOUT_MS,
-        headers: { 'User-Agent': `web-mcp-assistant/${this.currentVersion}` }
-      });
-      const hash = crypto.createHash('sha256');
-      output = await fsp.open(temporary, 'wx', 0o600);
-      let received = 0;
-      let lastReported = 0;
-      for await (const chunk of response) {
-        received += chunk.length;
-        if (received > saved.asset.size) throw new Error('下载内容超过 Release 声明的大小。');
-        hash.update(chunk);
-        await output.write(chunk);
-        const percent = Math.min(99, Math.floor((received / saved.asset.size) * 100));
-        if (percent >= lastReported + 2) {
-          lastReported = percent;
-          this.progress('downloading', percent, `正在下载 v${version}`, { received, total: saved.asset.size });
+      output = await fsp.open(temporary, received ? 'r+' : 'wx', 0o600);
+      let lastReported = initialPercent;
+      for (let attempt = 1; received < saved.asset.size && attempt <= this.downloadMaxAttempts; attempt += 1) {
+        const attemptStarted = this.now();
+        let attemptOffset = received;
+        this.writeState({ phase: 'downloading', downloadReceived: received, downloadAttempt: attempt, error: '', errorCode: '' });
+        try {
+          const headers = { 'User-Agent': `web-mcp-assistant/${this.currentVersion}` };
+          if (received > 0) headers.Range = `bytes=${received}-`;
+          const response = await this.requestStream(saved.asset.downloadUrl, {
+            proxyUrl,
+            timeoutMs: DOWNLOAD_TIMEOUT_MS,
+            preferHttp2: true,
+            headers
+          });
+          const statusCode = Number(response.statusCode || (received ? 0 : 200));
+          if (received > 0 && statusCode === 206) {
+            const range = contentRange(response.headers?.['content-range']);
+            if (!range || range.start !== received || (range.total !== null && range.total !== saved.asset.size)) {
+              response.destroy();
+              const error = new Error(`GitHub 断点响应无效：${response.headers?.['content-range'] || '缺少 Content-Range'}。`);
+              error.code = 'ERR_INVALID_CONTENT_RANGE';
+              throw error;
+            }
+          } else if (received > 0 && statusCode === 200) {
+            await output.truncate(0);
+            received = 0;
+            attemptOffset = 0;
+            lastReported = 0;
+          } else if (received > 0) {
+            response.destroy();
+            const error = new Error(`GitHub 不支持从 ${received} 字节继续下载（HTTP ${statusCode || 'unknown'}）。`);
+            error.code = 'ERR_INVALID_RESUME_STATUS';
+            throw error;
+          }
+
+          try {
+            for await (const chunk of response) {
+              if (received + chunk.length > saved.asset.size) throw new Error('下载内容超过 Release 声明的大小。');
+              await writeAll(output, chunk, received);
+              received += chunk.length;
+              const percent = Math.min(99, Math.floor((received / saved.asset.size) * 100));
+              if (percent >= lastReported + 2) {
+                lastReported = percent;
+                this.writeState({ phase: 'downloading', downloadReceived: received, downloadAttempt: attempt });
+                this.progress('downloading', percent, `正在下载 v${version}`, { received, total: saved.asset.size, attempt });
+              }
+            }
+          } catch (error) {
+            error.requestHost ||= response.requestHost;
+            throw error;
+          }
+          if (received !== saved.asset.size) throw incompleteDownload(received, saved.asset.size);
+        } catch (error) {
+          await output.sync().catch(() => {});
+          const code = errorCode(error);
+          const canRetry = retryableDownloadError(error) && attempt < this.downloadMaxAttempts;
+          const host = String(error.requestHost || '');
+          this.log?.warn?.(canRetry ? '更新下载连接中断，将断点续传' : '更新下载连接失败', {
+            stage: 'update-download-retry', attempt, maxAttempts: this.downloadMaxAttempts,
+            received, attemptBytes: received - attemptOffset, total: saved.asset.size,
+            code, host, durationMs: this.now() - attemptStarted
+          });
+          this.writeState({
+            phase: canRetry ? 'downloading' : 'download-failed',
+            downloadReceived: received, downloadAttempt: attempt,
+            error: canRetry ? '' : error.message, errorCode: code
+          });
+          if (!canRetry) throw error;
+          const delayMs = Math.min(8_000, this.downloadRetryBaseMs * (2 ** (attempt - 1)));
+          const percent = Math.min(99, Math.floor((received / saved.asset.size) * 100));
+          this.progress('downloading', percent, `连接中断，${Math.ceil(delayMs / 1000)} 秒后从 ${received} 字节继续（${attempt + 1}/${this.downloadMaxAttempts}）`, {
+            received, total: saved.asset.size, attempt, nextAttempt: attempt + 1,
+            errorCode: code, host, retryDelayMs: delayMs
+          });
+          await this.sleep(delayMs);
         }
       }
       await output.sync();
       await output.close();
       output = null;
-      if (received !== saved.asset.size) throw new Error(`下载提前结束：期望 ${saved.asset.size}，实际 ${received}。`);
-      const digest = hash.digest('hex');
+      if (received !== saved.asset.size) throw incompleteDownload(received, saved.asset.size);
+      const digest = await sha256File(temporary);
       if (!crypto.timingSafeEqual(Buffer.from(digest, 'hex'), Buffer.from(saved.asset.sha256, 'hex'))) {
-        throw new Error('下载文件的 SHA-256 与 GitHub Release 不一致。');
+        const error = new Error('下载文件的 SHA-256 与 GitHub Release 不一致。');
+        error.code = 'ERR_DOWNLOAD_INTEGRITY';
+        throw error;
       }
       await validateElf(temporary, this.arch);
       await fsp.chmod(temporary, 0o700);
@@ -336,7 +463,9 @@ class UpdateService {
         stagedPath: destination,
         stagedVersion: version,
         downloadedAt: new Date(this.now()).toISOString(),
-        error: ''
+        error: '',
+        errorCode: '',
+        downloadReceived: saved.asset.size
       });
       this.progress('downloaded', 100, `v${version} 已下载并通过 SHA-256 与 ELF 架构校验`, {
         received: saved.asset.size,
@@ -345,9 +474,14 @@ class UpdateService {
       return this.status();
     } catch (error) {
       if (output) await output.close().catch(() => {});
-      await fsp.rm(temporary, { force: true }).catch(() => {});
-      this.writeState({ phase: 'download-failed', error: error.message });
-      this.progress('failed', 100, `更新下载失败：${error.message}`);
+      if (DISCARD_PART_CODES.has(errorCode(error))) await fsp.rm(temporary, { force: true }).catch(() => {});
+      this.writeState({
+        phase: 'download-failed', error: error.message, errorCode: errorCode(error),
+        downloadReceived: received
+      });
+      this.progress('failed', 100, `更新下载失败：${error.message}`, {
+        received, total: saved.asset.size, errorCode: errorCode(error), requestHost: error.requestHost || ''
+      });
       throw error;
     }
   }
@@ -493,7 +627,11 @@ module.exports = {
   UPDATE_HELPER_FLAG,
   ARCHITECTURES,
   CHECK_CACHE_MS,
+  DOWNLOAD_MAX_ATTEMPTS,
+  DOWNLOAD_RETRY_BASE_MS,
   MAX_ASSET_BYTES,
+  retryableDownloadError,
+  contentRange,
   parseVersion,
   compareVersions,
   releaseInfo,

@@ -49,6 +49,14 @@ function releaseFor(binary, options = {}) {
   };
 }
 
+function responseStream(chunks, options = {}) {
+  const stream = Readable.from(chunks);
+  stream.statusCode = options.statusCode || 200;
+  stream.headers = options.headers || {};
+  stream.requestHost = options.requestHost || 'release-assets.githubusercontent.com';
+  return stream;
+}
+
 test('semantic versions and stable GitHub Release metadata are validated', () => {
   assert.deepEqual(parseVersion('v1.2.3').numbers, [1, 2, 3]);
   assert.equal(compareVersions('0.1.8', '0.1.7'), 1);
@@ -203,6 +211,88 @@ test('UpdateService downloads, verifies and atomically installs the matching ELF
   assert.deepEqual(await fsp.readFile(`${target}.previous`), oldBinary);
   assert.ok(progress.some((item) => item.stage === 'downloaded'));
   assert.ok(progress.some((item) => item.stage === 'installed'));
+});
+
+test('UpdateService resumes with Range after a transient socket reset', async (t) => {
+  const temporary = await fsp.mkdtemp(path.join(os.tmpdir(), 'web-mcp-update-resume-'));
+  t.after(() => fsp.rm(temporary, { recursive: true, force: true }));
+  const binary = fakeElf('x64', 16 * 1024);
+  const release = releaseFor(binary);
+  const ranges = [];
+  const warnings = [];
+  const sleeps = [];
+  let requestCount = 0;
+  const updater = new UpdateService({
+    currentVersion: '0.1.7', arch: 'x64', platform: 'linux', native: false,
+    updateRoot: path.join(temporary, 'updates'), stateFile: path.join(temporary, 'update-state.json'),
+    requestJson: async () => [release],
+    requestStream: async (_url, options) => {
+      requestCount += 1;
+      ranges.push(options.headers.Range || '');
+      if (requestCount === 1) {
+        return responseStream((async function* interrupted() {
+          yield binary.subarray(0, 4096);
+          const error = new Error('socket hang up');
+          error.code = 'ECONNRESET';
+          error.requestHost = 'github.com';
+          throw error;
+        })());
+      }
+      return responseStream([binary.subarray(4096)], {
+        statusCode: 206,
+        headers: { 'content-range': `bytes 4096-${binary.length - 1}/${binary.length}` }
+      });
+    },
+    log: { info: () => {}, warn: (message, meta) => warnings.push({ message, meta }) },
+    sleep: async (milliseconds) => sleeps.push(milliseconds),
+    downloadRetryBaseMs: 25
+  });
+
+  await updater.check({ force: true });
+  const status = await updater.download();
+  assert.equal(status.staged, true);
+  assert.deepEqual(ranges, ['', 'bytes=4096-']);
+  assert.deepEqual(sleeps, [25]);
+  assert.equal(warnings[0].meta.code, 'ECONNRESET');
+  assert.equal(warnings[0].meta.received, 4096);
+  assert.deepEqual(await fsp.readFile(updater.readState().stagedPath), binary);
+});
+
+test('UpdateService keeps and resumes a digest-scoped partial file across service instances', async (t) => {
+  const temporary = await fsp.mkdtemp(path.join(os.tmpdir(), 'web-mcp-update-restart-resume-'));
+  t.after(() => fsp.rm(temporary, { recursive: true, force: true }));
+  const binary = fakeElf('x64', 12 * 1024);
+  const release = releaseFor(binary);
+  const updateRoot = path.join(temporary, 'updates');
+  const stateFile = path.join(temporary, 'update-state.json');
+  const first = new UpdateService({
+    currentVersion: '0.1.7', arch: 'x64', platform: 'linux', native: false,
+    updateRoot, stateFile, requestJson: async () => [release]
+  });
+  await first.check({ force: true });
+
+  const asset = first.readState().asset;
+  const partial = path.join(updateRoot, 'v0.1.8', `${asset.name}.${asset.sha256.slice(0, 12)}.part`);
+  await fsp.mkdir(path.dirname(partial), { recursive: true });
+  await fsp.writeFile(partial, binary.subarray(0, 3072), { mode: 0o600 });
+
+  let requestedRange = '';
+  const restarted = new UpdateService({
+    currentVersion: '0.1.7', arch: 'x64', platform: 'linux', native: false,
+    updateRoot, stateFile,
+    requestStream: async (_url, options) => {
+      requestedRange = options.headers.Range || '';
+      return responseStream([binary.subarray(3072)], {
+        statusCode: 206,
+        headers: { 'content-range': `bytes 3072-${binary.length - 1}/${binary.length}` }
+      });
+    }
+  });
+  const status = await restarted.download();
+  assert.equal(requestedRange, 'bytes=3072-');
+  assert.equal(status.staged, true);
+  assert.equal(fs.existsSync(partial), false);
+  assert.deepEqual(await fsp.readFile(restarted.readState().stagedPath), binary);
 });
 
 test('UpdateService rejects source mode, digest mismatches and wrong ELF architecture', async (t) => {

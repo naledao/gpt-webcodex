@@ -1266,6 +1266,7 @@ function renderUpdateStatus(status) {
   $('#aboutVersion').textContent = `v${version}`;
   $('#updateArchitecture').textContent = `linux · ${status.architecture || 'unknown'} · ${status.native ? '原生 ELF' : '源码模式'}`;
   $('#downloadUpdateButton').hidden = true;
+  $('#downloadUpdateButton').textContent = '下载更新';
   $('#applyUpdateButton').hidden = true;
   $('#updateReleaseNotes').hidden = true;
 
@@ -1275,7 +1276,13 @@ function renderUpdateStatus(status) {
   if (status.error && /failed/.test(status.phase || '')) {
     chip = '操作失败';
     title = '更新操作失败';
-    detail = status.error;
+    const retained = Number(status.downloadReceived) || 0;
+    const diagnostic = status.errorCode ? ` · ${status.errorCode}` : '';
+    detail = `${status.error}${diagnostic}${retained ? ` · 已保留 ${formatUpdateBytes(retained)}，可继续下载` : ''}`;
+    if (status.phase === 'download-failed' && status.available) {
+      $('#downloadUpdateButton').hidden = false;
+      $('#downloadUpdateButton').textContent = retained ? '继续下载' : '重新下载';
+    }
   } else if (!status.checkedAt) {
     chip = status.canApply ? '稳定通道' : '仅检查';
   } else if (!status.available) {
