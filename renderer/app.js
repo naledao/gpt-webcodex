@@ -724,6 +724,16 @@ function renderSnapshot(snapshot, options = {}) {
 
 function renderAuthorizedRoots(roots) {
   const container = $('#authorizedRootsList');
+  const allowAllBtn = $('#toggleAllowAllRoots');
+  const allowAllText = $('#allowAllRootsText');
+  const isAllowAll = roots.includes('/');
+  if (allowAllBtn) {
+    allowAllBtn.classList.toggle('active', isAllowAll);
+    allowAllBtn.title = isAllowAll ? '已允许访问系统任意目录，点击可关闭全局放行' : '一键放行系统任意目录访问权限';
+  }
+  if (allowAllText) {
+    allowAllText.textContent = isAllowAll ? '已允许访问任何目录' : '允许访问任何目录';
+  }
   if (!container) return;
   container.replaceChildren();
   if (!roots.length) {
@@ -735,20 +745,21 @@ function renderAuthorizedRoots(roots) {
   }
   roots.forEach((root) => {
     const row = document.createElement('div');
-    row.className = 'authorized-root-row workspace-root-row';
+    const isRootAll = root === '/';
+    row.className = 'authorized-root-row workspace-root-row' + (isRootAll ? ' allow-all-row' : '');
     const icon = document.createElement('span');
-    icon.className = 'workspace-folder-icon small';
+    icon.className = isRootAll ? 'workspace-folder-icon small global' : 'workspace-folder-icon small';
     icon.setAttribute('aria-hidden', 'true');
     const path = document.createElement('span');
     path.className = 'workspace-root-path';
-    path.textContent = root;
-    path.title = root;
+    path.textContent = isRootAll ? '/ （已允许访问系统任意目录）' : root;
+    path.title = isRootAll ? '系统根目录（全局放行）' : root;
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'workspace-root-remove';
     remove.textContent = '⌫';
-    remove.title = `移除授权目录：${root}`;
-    remove.setAttribute('aria-label', `移除授权目录：${root}`);
+    remove.title = isRootAll ? '取消全目录放行' : `移除授权目录：${root}`;
+    remove.setAttribute('aria-label', isRootAll ? '取消全目录放行' : `移除授权目录：${root}`);
     remove.addEventListener('click', () => removeAuthorizedRoot(root));
     row.append(icon, path, remove);
     container.appendChild(row);
@@ -838,6 +849,28 @@ async function addAuthorizedRoot() {
     renderSnapshot(snapshot, { forceForms: true });
     toast('已添加授权目录', selected);
   } catch (error) { toast('授权目录失败', error.message, 'error'); }
+}
+
+async function toggleAllowAllRoots() {
+  try {
+    const current = state.snapshot?.settings?.authorizedRoots || [];
+    const isAllowAll = current.includes('/');
+    let next;
+    if (isAllowAll) {
+      next = current.filter((item) => item !== '/');
+    } else {
+      next = ['/', ...current.filter((item) => item !== '/')];
+    }
+    const snapshot = unwrap(await api.updateAuthorizedRoots(next));
+    renderSnapshot(snapshot, { forceForms: true });
+    if (isAllowAll) {
+      toast('已取消全局放行', '已恢复受限目录访问边界');
+    } else {
+      toast('已开启全局访问', '已允许访问系统任意目录');
+    }
+  } catch (error) {
+    toast('切换全局访问失败', error.message, 'error');
+  }
 }
 
 async function removeAuthorizedRoot(root) {
@@ -1515,6 +1548,7 @@ function bindEvents() {
   });
   $('#cancelWorkspacePath').addEventListener('click', () => closeModal());
   $('#addAuthorizedRoot').addEventListener('click', addAuthorizedRoot);
+  $('#toggleAllowAllRoots')?.addEventListener('click', toggleAllowAllRoots);
   $('#workspaceSafeToggle')?.addEventListener('change', async (event) => {
     const mode = event.target.checked ? 'safe' : 'trusted';
     setWorkspacePermissionMode(mode);

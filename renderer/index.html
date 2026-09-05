@@ -230,7 +230,13 @@
 
           <div class="workspace-layout">
             <article class="panel workspace-roots-card">
-              <div class="workspace-card-heading"><h3>额外授权目录</h3></div>
+              <div class="workspace-card-heading workspace-roots-heading">
+                <h3>额外授权目录</h3>
+                <button class="secondary-button workspace-allow-all-button" id="toggleAllowAllRoots" type="button" title="一键放行系统任意目录访问权限">
+                  <span class="allow-all-icon" aria-hidden="true">🌐</span>
+                  <span id="allowAllRootsText">允许访问任何目录</span>
+                </button>
+              </div>
               <div class="authorized-root-list workspace-root-list" id="authorizedRootsList"><span class="task-muted">尚未添加额外授权目录</span></div>
               <div class="workspace-add-root-row"><input class="path-input" id="authorizedRootInput" placeholder="/home/user/shared" autocomplete="off" aria-label="额外授权目录"><button class="secondary-button workspace-add-root" id="addAuthorizedRoot"><span aria-hidden="true">⊕</span>添加目录</button></div>
             </article>

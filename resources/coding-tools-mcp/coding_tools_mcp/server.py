@@ -1230,7 +1230,7 @@ class Workspace:
                 resolved = raw.expanduser().resolve(strict=True)
             except (OSError, RuntimeError):
                 continue
-            if not resolved.is_dir() or resolved.parent == resolved:
+            if not resolved.is_dir():
                 continue
             key = os.path.normcase(str(resolved))
             if key in seen:
@@ -1239,6 +1239,10 @@ class Workspace:
             roots.append(resolved)
         self.authorized_roots = tuple(roots)
         self.git_path = shutil.which("git")
+
+    @property
+    def allow_all_directories(self) -> bool:
+        return any(root.parent == root for root in self.authorized_roots)
 
     def _candidate(self, base: Path, raw_path: str) -> Path:
         if not isinstance(raw_path, str) or not raw_path:
@@ -1250,7 +1254,8 @@ class Workspace:
             return candidate
         pure = PurePosixPath(raw_path.replace("\\", "/"))
         if any(part == ".." for part in pure.parts):
-            raise ToolFailure("PATH_OUTSIDE_WORKSPACE", "Path escapes the configured workspace.", category="security")
+            if not self.allow_all_directories:
+                raise ToolFailure("PATH_OUTSIDE_WORKSPACE", "Path escapes the configured workspace.", category="security")
         return base.joinpath(candidate)
 
     def _containing_root(self, path: Path) -> Path | None:
@@ -3988,7 +3993,14 @@ class Runtime:
             or re.match(r"^[A-Za-z]:/", normalized)
             or any(part == ".." for part in PurePosixPath(normalized).parts)
         ):
-            raise escape_failure()
+            cand_allowed = False
+            try:
+                cand_path = Path(normalized).expanduser().resolve(strict=False)
+                cand_allowed = self.workspace._is_allowed(cand_path)
+            except Exception:
+                pass
+            if not cand_allowed:
+                raise escape_failure()
         try:
             self.workspace.resolve_existing(normalized)
         except OSError as exc:

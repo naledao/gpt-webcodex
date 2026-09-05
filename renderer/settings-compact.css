@@ -222,6 +222,12 @@ body[data-theme="dark"] .connection-config-editor{background:rgba(255,255,255,.0
 .workspace-page-header p{margin:7px 0 0;color:var(--muted);font-size:12px}
 .workspace-page .panel{border:1px solid var(--border)!important;border-radius:13px!important;background:var(--surface)!important;box-shadow:0 3px 12px rgba(31,45,68,.03)!important}
 .workspace-card-heading h3{margin:0;color:var(--text);font-size:14px;font-weight:650}
+.workspace-roots-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.workspace-allow-all-button{height:34px!important;padding:0 12px!important;font-size:11px!important;border-color:var(--border)!important;color:var(--text)!important;background:var(--surface)!important;gap:6px!important;transition:all .18s ease;cursor:pointer}
+.workspace-allow-all-button:hover{border-color:#2872ee!important;color:#1769e8!important}
+.workspace-allow-all-button.active{border-color:#2872ee!important;color:#1769e8!important;background:rgba(40,114,238,.08)!important;font-weight:600}
+.workspace-folder-icon.global{border-color:#1769e8;background:rgba(23,105,232,.1)}
+.workspace-root-row.allow-all-row .workspace-root-path{color:#1769e8;font-weight:600}
 .workspace-current-card{padding:22px 26px!important}
 .workspace-current-row{display:flex;min-height:68px;align-items:center;justify-content:space-between;gap:24px;margin-top:10px}
 .workspace-current-path{display:flex;min-width:0;align-items:center;gap:18px}

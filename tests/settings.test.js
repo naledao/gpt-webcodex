@@ -57,6 +57,14 @@ test('instruction sharing requires an explicit supported mode', () => {
   assert.equal(normalize({ configVersion: 6, instructionSharingMode: 'content' }).instructionSharingMode, 'metadata');
 });
 
+test('authorizedRoots allows root path / for global directory access', () => {
+  const normalized = normalize({
+    workspace: '/home/user/project',
+    authorizedRoots: ['/', '/home/user/shared', '/']
+  });
+  assert.deepEqual(normalized.authorizedRoots, ['/', '/home/user/shared']);
+});
+
 test('runtime settings require Linux absolute paths', () => {
   const valid = normalize({ workspace: '/home/user/project' });
   assert.doesNotThrow(() => validateRuntimeSettings(valid));

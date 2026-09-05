@@ -322,6 +322,33 @@ class ToolModeTests(unittest.TestCase):
                 runtime.read_file({"path": str(blocked_file)})
             runtime.close()
 
+    def test_authorized_root_root_directory_allows_all_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as main_temp, tempfile.TemporaryDirectory() as outside_temp:
+            main = Path(main_temp)
+            outside = Path(outside_temp)
+            outside_file = outside / "anywhere.txt"
+            outside_file.write_text("global access content\n", encoding="utf-8")
+            runtime = Runtime(main)
+            self.assertFalse(runtime.workspace.allow_all_directories)
+            with self.assertRaises(server_module.ToolFailure):
+                runtime.read_file({"path": str(outside_file)})
+
+            updated = runtime.set_authorized_roots(["/"])
+            self.assertTrue(runtime.workspace.allow_all_directories)
+            self.assertIn("/", updated["authorized_roots"])
+            read = runtime.read_file({"path": str(outside_file)})
+            self.assertIn("global access content", read["content"])
+
+            # Test command path candidate checking passes
+            runtime._check_command_path_candidate(str(outside_file))
+
+            # Removing root restores isolation
+            runtime.set_authorized_roots([])
+            self.assertFalse(runtime.workspace.allow_all_directories)
+            with self.assertRaises(server_module.ToolFailure):
+                runtime.read_file({"path": str(outside_file)})
+            runtime.close()
+
     def test_search_text_handles_utf8_content(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
