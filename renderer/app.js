@@ -684,7 +684,7 @@ function renderWorkspacePermission(mode = 'safe') {
   const description = $('#workspacePermissionDescription');
   if (description) description.textContent = safe
     ? '限制潜在风险操作，提升执行安全性'
-    : '减少常规开发操作的确认，请仅在受信任项目中使用';
+    : '完全放开限制：允许网络访问、执行脚本并放行 Base URL 与 API Key 等配置落盘';
   const recommended = $('#workspacePermissionRecommended');
   if (recommended) recommended.hidden = !safe;
   const whitelist = $('#workspaceWhitelistToggle');
@@ -692,7 +692,7 @@ function renderWorkspacePermission(mode = 'safe') {
   const whitelistNote = $('#workspaceWhitelistNote');
   if (whitelistNote) whitelistNote.textContent = safe
     ? '当前版本由安全模式统一控制'
-    : '可信模式下不提供独立白名单开关';
+    : '可信模式下不进行拦截审计';
 }
 
 function setWorkspacePermissionMode(mode) {

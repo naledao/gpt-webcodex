@@ -67,6 +67,8 @@ class NativeService {
       CODING_TOOLS_MCP_GLOBAL_AGENTS: settings.globalAgentsEnabled ? '1' : '0',
       CODING_TOOLS_MCP_AUTHORIZED_ROOTS: JSON.stringify(settings.authorizedRoots || []),
       CODING_TOOLS_MCP_ALLOW_ALL_DIRECTORIES: settings.allowAllDirectories ? '1' : '0',
+      CODING_TOOLS_MCP_ALLOW_NETWORK: settings.permissionMode === 'trusted' ? '1' : '0',
+      CODING_TOOLS_MCP_DANGEROUSLY_SKIP_ALL_PERMISSIONS: settings.permissionMode === 'trusted' ? '1' : '0',
       CODING_TOOLS_MCP_LONG_TOOL_HANDOFF_SECONDS: String(settings.progressReportSeconds || 90)
     };
     const bundledTools = path.join(resourcesRoot(), 'tools');

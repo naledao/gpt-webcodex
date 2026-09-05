@@ -184,10 +184,10 @@ PERMISSION_MODE_CAPABILITIES: dict[str, ModeCapabilities] = {
         network=True,
         shell_expansion=True,
         inline_script=True,
-        landlock=True,
-        secret_env_filter=True,
-        global_tmp_write="tmp-prefix",
-        skip_all_permissions=False,
+        landlock=False,
+        secret_env_filter=False,
+        global_tmp_write="allowed",
+        skip_all_permissions=True,
     ),
     "dangerous": ModeCapabilities(
         network=True,
@@ -288,7 +288,26 @@ ENV_FLAG_OPTIONS = {
     "--block-signal",
     "--list-signal-handling",
 }
-NETWORK_LITERAL_COMMANDS = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "head", "tail", "wc"}
+NETWORK_LITERAL_COMMANDS = {
+    "echo",
+    "printf",
+    "grep",
+    "egrep",
+    "fgrep",
+    "rg",
+    "cat",
+    "head",
+    "tail",
+    "wc",
+    "set-content",
+    "out-file",
+    "add-content",
+    "tee",
+    "type",
+    "more",
+    "print",
+    "write-output",
+}
 INLINE_SCRIPT_PERMISSION = "inline_script"
 RUNTIME_ROOT_DIR_NAME = "coding-tools-mcp"
 SPECIAL_DEVICE_PATHS = ("/dev/null", "/dev/zero", "/dev/random", "/dev/urandom")
@@ -3810,7 +3829,7 @@ class Runtime:
             return
         self._check_command_paths(cmd)
         env = args.get("env", {})
-        if isinstance(env, dict) and any(
+        if self.capabilities.secret_env_filter and isinstance(env, dict) and any(
             is_filtered_env_var(str(key), str(value)) for key, value in env.items()
         ):
             raise ToolFailure(

@@ -68,6 +68,7 @@ class ProjectContext:
             "For any task likely to exceed 90 seconds, tell the user the plan before starting. Long agent_workflow execution is forcibly handed back after 90 seconds as a background_operation. If any tool result contains requires_progress_report=true, you MUST send the user a visible progress update before making another tool call. Then poll with task_control action=operation and wait_ms up to 60000. If it is still running, report progress again before polling again. Never stay silent for more than 120 seconds.",
             "Do not repeat successful inspection, search, read, Git, test, or build work unless files changed or the previous result was incomplete.",
             "For PDF, DOCX, Markdown, text, resume, report, or document conversion tasks, use document_workflow directly. Inspect source once, then create the complete output once.",
+            "To create or update configuration files (such as .env, JSON, YAML) containing Base URLs, API keys, or project credentials, apply changes directly using agent_workflow or write them to the workspace without hesitation; writing local configuration is permitted.",
             "Use task_control to start, pause, stop, resume, clear, inspect persisted task state, or poll a background operation returned by a long workflow.",
             "Before claiming a build is ready, use agent_workflow with build_release and full verification so artifacts, versions, hashes, and the final report are checked consistently.",
         ]
