@@ -44,9 +44,9 @@ function probeMcp(port, token, expectedWorkspace = '') {
 }
 
 
-function setMcpAuthorizedRoots(port, token, roots) {
+function setMcpAuthorizedRoots(port, token, roots, allowAllDirectories = false) {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ roots });
+    const body = JSON.stringify({ roots, allow_all_directories: Boolean(allowAllDirectories) });
     const request = http.request({
       host: '127.0.0.1',
       port,
@@ -319,12 +319,32 @@ class RuntimeOrchestrator {
       const runtimeWasRunning = await this.native.status().catch(() => false);
       if (runtimeWasRunning) {
         const token = await this.ensureToken();
-        await setMcpAuthorizedRoots(previous.mcpPort, token, normalized);
+        await setMcpAuthorizedRoots(previous.mcpPort, token, normalized, previous.allowAllDirectories);
       }
       const saved = this.settingsStore.save({ authorizedRoots: normalized });
       if (runtimeWasRunning) await this.native.markWorkspace(saved);
       this.invalidateSnapshot();
       return this.snapshot({ force: true, reason: 'authorized-roots-updated' });
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  async setAllowAllDirectories(enabled) {
+    if (this.busy) throw new Error('当前已有任务正在运行。');
+    const previous = this.settingsStore.load();
+    const allowAll = Boolean(enabled);
+    this.busy = true;
+    try {
+      const runtimeWasRunning = await this.native.status().catch(() => false);
+      if (runtimeWasRunning) {
+        const token = await this.ensureToken();
+        await setMcpAuthorizedRoots(previous.mcpPort, token, previous.authorizedRoots, allowAll);
+      }
+      const saved = this.settingsStore.save({ allowAllDirectories: allowAll });
+      if (runtimeWasRunning) await this.native.markWorkspace(saved);
+      this.invalidateSnapshot();
+      return this.snapshot({ force: true, reason: 'allow-all-directories-updated' });
     } finally {
       this.busy = false;
     }

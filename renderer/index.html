@@ -229,7 +229,29 @@
             <article class="panel workspace-roots-card">
               <div class="workspace-card-heading"><h3>额外授权目录</h3></div>
               <div class="authorized-root-list workspace-root-list" id="authorizedRootsList"><span class="task-muted">尚未添加额外授权目录</span></div>
-              <button class="secondary-button workspace-add-root" id="addAuthorizedRoot"><span aria-hidden="true">⊕</span>添加目录</button>
+              <div class="workspace-roots-actions">
+                <button class="secondary-button workspace-add-root" id="addAuthorizedRoot"><span aria-hidden="true">⊕</span>添加目录</button>
+                <button class="secondary-button workspace-allow-all-btn" id="toggleAllowAllDirectories" type="button" title="允许访问本地任意目录与磁盘路径"><span class="allow-all-indicator" aria-hidden="true">🌐</span><span id="allowAllDirectoriesText">允许访问任意目录</span></button>
+              </div>
+              <div class="workspace-allow-all-modal-body" id="allowAllModalBody" hidden>
+                <div class="allow-all-modal-content">
+                  <div class="allow-all-modal-icon-wrap">
+                    <span class="allow-all-modal-icon" aria-hidden="true">⚠️</span>
+                  </div>
+                  <div class="allow-all-modal-copy">
+                    <h4>确定要允许访问系统任意目录吗？</h4>
+                    <p>开启后，AI（网页端 ChatGPT）将可以读取、创建和修改当前 Windows 账户有权访问的所有本地文件和磁盘路径。</p>
+                  </div>
+                </div>
+                <div class="notice warning allow-all-modal-notice">
+                  <b>安全风险提示</b>
+                  <p>AI 将能直接访问工作区外的任意文件（包括其他项目、个人配置与敏感密钥）。请仅在完全受信任的开发环境中使用。</p>
+                </div>
+                <div class="workspace-advanced-actions allow-all-modal-actions">
+                  <button class="secondary-button" id="cancelAllowAllBtn" type="button">取消</button>
+                  <button class="primary-button danger-button" id="confirmAllowAllBtn" type="button">确认开启全局访问</button>
+                </div>
+              </div>
             </article>
 
             <div class="workspace-side-stack">

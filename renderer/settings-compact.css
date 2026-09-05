@@ -240,8 +240,16 @@ body[data-theme="dark"] .connection-config-editor{background:rgba(255,255,255,.0
 .workspace-root-path{min-width:0;overflow:hidden;color:var(--text);font-size:13px;text-overflow:ellipsis;white-space:nowrap}
 .workspace-root-remove{display:grid;width:32px;height:32px;place-items:center;border:0;border-radius:8px;color:var(--muted);background:transparent;font-size:18px;line-height:1;cursor:pointer}
 .workspace-root-remove:hover{color:#c94d55;background:rgba(201,77,85,.08)}
-.workspace-add-root{align-self:flex-start;height:40px!important;margin-top:auto;padding:0 16px!important;gap:8px!important}
+.workspace-roots-actions{display:flex;align-items:center;gap:10px;margin-top:auto;flex-wrap:wrap}
+.workspace-roots-actions .workspace-add-root{align-self:auto;height:40px!important;margin-top:0;padding:0 16px!important;gap:8px!important}
+.workspace-roots-actions .workspace-add-root:disabled{opacity:.45!important;cursor:not-allowed!important}
 .workspace-add-root span{font-size:19px;line-height:1}
+.workspace-allow-all-btn{height:40px!important;margin-top:0;padding:0 16px!important;gap:8px!important;font-size:13px;border:1px solid var(--border);border-radius:10px;transition:all .18s ease;display:inline-flex;align-items:center;justify-content:center}
+.workspace-allow-all-btn .allow-all-indicator{font-size:15px;line-height:1}
+.workspace-allow-all-btn.active{border-color:rgba(57,163,88,.55);color:#237a3e;background:rgba(57,163,88,.10);font-weight:600}
+.workspace-allow-all-notice{display:flex;align-items:center;gap:10px;padding:10px 14px;margin-bottom:12px;border-radius:10px;background:rgba(235,160,30,.10);border:1px solid rgba(235,160,30,.30);color:var(--text);font-size:12px}
+.workspace-allow-all-notice .allow-all-badge{padding:3px 7px;border-radius:5px;background:#e59114;color:#fff;font-size:11px;font-weight:600;white-space:nowrap}
+.workspace-allow-all-notice .allow-all-hint{color:var(--muted);font-size:11px}
 .workspace-side-stack{display:grid;grid-template-rows:auto 1fr;gap:18px}
 .workspace-permission-card,.workspace-rules-card{padding:24px 26px!important}
 .workspace-permission-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:14px;margin-top:18px}
@@ -328,7 +336,19 @@ body.modal-open{overflow:hidden!important}
 .app-modal-close{display:grid;width:34px;height:34px;place-items:center;border:0;border-radius:9px;color:var(--muted);background:transparent;font-size:24px;line-height:1;cursor:pointer}
 .app-modal-close:hover{color:var(--text);background:var(--surface-2)}
 .app-modal-body{min-height:0;overflow:auto;padding:20px 22px 24px;overscroll-behavior:contain}
-.app-modal-body>.connection-advanced-body,.app-modal-body>.connection-config-editor,.app-modal-body>.workspace-advanced-body,.app-modal-body>.activity-task-details,.app-modal-body>.activity-performance-body,.app-modal-body>.diagnostic-details,.app-modal-body>.settings-security-actions,.app-modal-body>.update-release-notes-panel{display:block!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}
+.app-modal-body>.connection-advanced-body,.app-modal-body>.connection-config-editor,.app-modal-body>.workspace-advanced-body,.app-modal-body>.activity-task-details,.app-modal-body>.activity-performance-body,.app-modal-body>.diagnostic-details,.app-modal-body>.settings-security-actions,.app-modal-body>.update-release-notes-panel,.app-modal-body>.workspace-allow-all-modal-body{display:block!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}
+.allow-all-modal-content{display:flex;align-items:flex-start;gap:16px;margin-bottom:14px}
+.allow-all-modal-icon-wrap{display:grid;width:42px;height:42px;flex-shrink:0;place-items:center;border-radius:12px;background:rgba(235,160,30,.12);border:1px solid rgba(235,160,30,.28);font-size:20px}
+.allow-all-modal-copy{flex:1;min-width:0}
+.allow-all-modal-copy h4{margin:2px 0 6px;color:var(--text);font-size:14px;font-weight:650;line-height:1.4}
+.allow-all-modal-copy p{margin:0;color:var(--muted);font-size:12px;line-height:1.55}
+.allow-all-modal-notice{margin-top:14px!important;padding:12px 14px!important}
+.allow-all-modal-notice b{color:#b37200;font-size:11px;font-weight:600}
+.allow-all-modal-notice p{margin-top:4px;color:var(--text);font-size:11px;line-height:1.5}
+.allow-all-modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.allow-all-modal-actions button{height:38px!important;padding:0 18px!important;border-radius:9px;font-size:12px}
+.allow-all-modal-actions .danger-button{background:#d94848!important;border-color:#c83b3b!important;color:#fff!important}
+.allow-all-modal-actions .danger-button:hover{background:#c83b3b!important}
 .app-modal-body .connection-readonly-table>div{padding-left:4px;padding-right:4px}
 .app-modal-body .connection-config-bar{padding-left:4px;padding-right:4px}
 .app-modal-body .activity-detail-grid>section{background:var(--surface-2)}

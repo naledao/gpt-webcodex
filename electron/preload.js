@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('mcpAssistant', {
   chooseWorkspace: () => ipcRenderer.invoke('dialog:workspace'),
   switchWorkspace: (workspace) => ipcRenderer.invoke('workspace:switch', workspace),
   updateAuthorizedRoots: (roots) => ipcRenderer.invoke('workspace:authorized-roots', roots),
+  setAllowAllDirectories: (enabled) => ipcRenderer.invoke('workspace:allow-all-directories', enabled),
   taskState: () => ipcRenderer.invoke('task-state:read'),
   clearTaskState: () => ipcRenderer.invoke('task-state:clear'),
   pauseTask: () => ipcRenderer.invoke('task-state:pause'),

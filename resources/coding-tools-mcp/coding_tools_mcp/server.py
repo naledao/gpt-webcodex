@@ -1218,7 +1218,12 @@ class ResolvedPath:
 
 
 class Workspace:
-    def __init__(self, root: Path, authorized_roots: list[Path] | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        authorized_roots: list[Path] | None = None,
+        allow_all_directories: bool = False,
+    ) -> None:
         self.root = root.expanduser().resolve(strict=True)
         if not self.root.is_dir():
             raise ToolFailure("INVALID_ARGUMENT", "Workspace root must be a directory.", category="validation")
@@ -1244,6 +1249,7 @@ class Workspace:
             seen.add(key)
             roots.append(resolved)
         self.authorized_roots = tuple(roots)
+        self.allow_all_directories = bool(allow_all_directories)
         self.git_path = shutil.which("git")
 
     def _candidate(self, base: Path, raw_path: str) -> Path:
@@ -1256,7 +1262,8 @@ class Workspace:
             return candidate
         pure = PurePosixPath(raw_path.replace("\\", "/"))
         if any(part == ".." for part in pure.parts):
-            raise ToolFailure("PATH_OUTSIDE_WORKSPACE", "Path escapes the configured workspace.", category="security")
+            if not self.allow_all_directories:
+                raise ToolFailure("PATH_OUTSIDE_WORKSPACE", "Path escapes the configured workspace.", category="security")
         return base.joinpath(candidate)
 
     def _containing_root(self, path: Path) -> Path | None:
@@ -1266,6 +1273,8 @@ class Workspace:
         return None
 
     def _is_allowed(self, path: Path) -> bool:
+        if self.allow_all_directories:
+            return True
         return self._containing_root(path) is not None
 
     def resolve_existing(self, raw_path: str = ".") -> ResolvedPath:
@@ -1400,6 +1409,11 @@ def configured_authorized_roots() -> list[Path]:
     return [Path(str(item)) for item in parsed if str(item).strip()]
 
 
+def configured_allow_all_directories() -> bool:
+    raw = os.environ.get(f"{ENV_PREFIX}_ALLOW_ALL_DIRECTORIES", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 class Runtime:
     def __init__(
         self,
@@ -1414,9 +1428,19 @@ class Runtime:
         project_context: ProjectContext | None = None,
         fake_readonly_annotations: bool = False,
         transport: str = "stdio",
+        allow_all_directories: bool | None = None,
     ) -> None:
+        self.allow_all_directories = (
+            allow_all_directories
+            if allow_all_directories is not None
+            else configured_allow_all_directories()
+        )
         self.authorized_roots = configured_authorized_roots()
-        self.workspace = Workspace(workspace, self.authorized_roots)
+        self.workspace = Workspace(
+            workspace,
+            self.authorized_roots,
+            allow_all_directories=self.allow_all_directories,
+        )
         self.tool_mode = os.environ.get(f"{ENV_PREFIX}_TOOL_MODE", "coding").strip().lower()
         if self.tool_mode not in TOOL_MODE_ALLOWLISTS:
             self.tool_mode = "coding"
@@ -1526,11 +1550,21 @@ class Runtime:
         shutil.rmtree(self.runtime_dir, ignore_errors=True)
         self.telemetry.finish()
 
-    def set_authorized_roots(self, roots: list[str]) -> dict[str, Any]:
+    def set_authorized_roots(
+        self,
+        roots: list[str],
+        allow_all_directories: bool | None = None,
+    ) -> dict[str, Any]:
         parsed = [Path(str(item)) for item in roots if str(item).strip()]
         with self.workspace_switch_lock:
             self.authorized_roots = parsed
-            self.workspace = Workspace(self.workspace.root, self.authorized_roots)
+            if allow_all_directories is not None:
+                self.allow_all_directories = bool(allow_all_directories)
+            self.workspace = Workspace(
+                self.workspace.root,
+                self.authorized_roots,
+                allow_all_directories=self.allow_all_directories,
+            )
             if not self.workspace._is_allowed(self.default_cwd.resolve(strict=False)):
                 self.default_cwd = self.workspace.root
             self.workspace_generation += 1
@@ -1538,6 +1572,7 @@ class Runtime:
                 "ready": True,
                 "workspace": str(self.workspace.root),
                 "authorized_roots": [str(item) for item in self.workspace.authorized_roots if item != self.workspace.root],
+                "allow_all_directories": self.allow_all_directories,
                 "generation": self.workspace_generation,
             }
 
@@ -1566,7 +1601,11 @@ class Runtime:
             old_runtime_dir = self.runtime_dir
             self._invalidate_fast_cache()
             self._clear_context_bundle_cache()
-            self.workspace = Workspace(target, self.authorized_roots)
+            self.workspace = Workspace(
+                target,
+                self.authorized_roots,
+                allow_all_directories=self.allow_all_directories,
+            )
             self.default_cwd = self.workspace.root
             self._set_runtime_dir(runtime_dir_for_workspace(self.workspace.root, self.server_instance_id))
             self.fallback_runtime_dir = fallback_runtime_dir_for_workspace(self.workspace.root, self.server_instance_id)
@@ -1716,6 +1755,7 @@ class Runtime:
             **self._exec_environment_summary(),
             "default_cwd": self.default_cwd_display(),
             "authorized_roots": [str(item) for item in self.workspace.authorized_roots if item != self.workspace.root],
+            "allow_all_directories": self.allow_all_directories,
             "auth_enabled": self.auth_enabled(),
             "dangerously_skip_all_permissions": self.dangerously_skip_all_permissions,
             "annotation_override": "fake_readonly" if self.fake_readonly_annotations else None,
@@ -3860,7 +3900,8 @@ class Runtime:
             or re.match(r"^[A-Za-z]:/", normalized)
             or any(part == ".." for part in PurePosixPath(normalized).parts)
         ):
-            raise escape_failure()
+            if not getattr(self.workspace, "allow_all_directories", False):
+                raise escape_failure()
         try:
             self.workspace.resolve_existing(normalized)
         except OSError as exc:
@@ -6364,6 +6405,7 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
                 "workspace": str(runtime.workspace.root),
                 "default_cwd": runtime.default_cwd_display(),
                 "authorized_roots": [str(item) for item in runtime.workspace.authorized_roots if item != runtime.workspace.root],
+                "allow_all_directories": runtime.allow_all_directories,
                 "tool_mode": runtime.tool_mode,
                 "tool_profile": "smart-v2" if runtime.tool_mode == "smart" else runtime.tool_mode,
                 "tool_count": len(runtime.exposed_tool_names()),
@@ -6452,7 +6494,9 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
             roots = payload.get("roots", [])
             if not isinstance(roots, list):
                 raise ValueError("roots must be an array")
-            result = self.runtime.set_authorized_roots([str(item) for item in roots])
+            allow_all = payload.get("allow_all_directories")
+            allow_all_bool = bool(allow_all) if allow_all is not None else None
+            result = self.runtime.set_authorized_roots([str(item) for item in roots], allow_all_directories=allow_all_bool)
         except ToolFailure as exc:
             self.send_json({"error": exc.message, "code": exc.code, "details": exc.details}, status=409)
             return

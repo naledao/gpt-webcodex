@@ -4,7 +4,7 @@ function createPreviewApi() {
   const previewSettings = {
     workspace: 'C:\\Users\\示例用户\\Desktop\\my-project', permissionMode: 'safe', toolMode: 'smart',
     mcpPort: 18765, healthPort: 18081, proxyMode: 'auto', proxyUrl: '', tunnelId: 'tunnel_demo',
-    theme: 'light', startWithWindows: false, progressReportSeconds: 90, keepRunningOnClose: true, autoStartServices: false, globalAgentsEnabled: false, firstRunCompleted: true, guideProgress: {}, authorizedRoots: []
+    theme: 'light', startWithWindows: false, progressReportSeconds: 90, keepRunningOnClose: true, autoStartServices: false, globalAgentsEnabled: false, firstRunCompleted: true, guideProgress: {}, authorizedRoots: [], allowAllDirectories: false
   };
   const snapshot = {
     settings: previewSettings,
@@ -27,7 +27,7 @@ function createPreviewApi() {
     return ok(snapshot);
   };
   return {
-    snapshot: () => ok(snapshot), chooseWorkspace: () => ok(snapshot.settings.workspace), switchWorkspace: (workspace) => { snapshot.settings.workspace=workspace; return ok(snapshot); }, updateAuthorizedRoots: (roots) => { snapshot.settings.authorizedRoots=roots; return ok(snapshot); }, closeManager: () => ok(true),
+    snapshot: () => ok(snapshot), chooseWorkspace: () => ok(snapshot.settings.workspace), switchWorkspace: (workspace) => { snapshot.settings.workspace=workspace; return ok(snapshot); }, updateAuthorizedRoots: (roots) => { snapshot.settings.authorizedRoots=roots; return ok(snapshot); }, setAllowAllDirectories: (enabled) => { snapshot.settings.allowAllDirectories = Boolean(enabled); return ok(snapshot); }, closeManager: () => ok(true),
     saveSettings: (patch) => { Object.assign(snapshot.settings, patch); return ok(snapshot.settings); },
     saveRuntimeKey: () => ok(snapshot.secrets), removeRuntimeKey: () => ok(snapshot.secrets), regenerateMcpToken: () => ok(snapshot.secrets),
     start: () => setPreviewRuntime(true), stop: () => setPreviewRuntime(false), restart: () => setPreviewRuntime(true),
@@ -732,7 +732,7 @@ function renderSnapshot(snapshot, options = {}) {
   $('#selectedWorkspace').textContent = settings.workspace || '尚未选择目录';
   $('#selectedWorkspace').title = settings.workspace || '';
   renderWorkspacePermission(settings.permissionMode || 'safe');
-  renderAuthorizedRoots(settings.authorizedRoots || []);
+  renderAuthorizedRoots(settings.authorizedRoots || [], Boolean(settings.allowAllDirectories));
   renderGlobalAgents(settings, environment.globalAgents);
 
   const partial = status.runtimeRunning || status.tunnelRunning;
@@ -770,14 +770,45 @@ function renderSnapshot(snapshot, options = {}) {
   renderDeploySummary();
 }
 
-function renderAuthorizedRoots(roots) {
+function renderAuthorizedRoots(roots, allowAllDirectories = false) {
+  const addRootBtn = $('#addAuthorizedRoot');
+  if (addRootBtn) {
+    addRootBtn.disabled = Boolean(allowAllDirectories);
+    addRootBtn.title = allowAllDirectories ? '全局访问已开启，无需添加单个授权目录' : '添加额外授权目录';
+  }
+
+  const toggleBtn = $('#toggleAllowAllDirectories');
+  const toggleText = $('#allowAllDirectoriesText');
+  if (toggleBtn) {
+    toggleBtn.classList.toggle('active', Boolean(allowAllDirectories));
+    toggleBtn.setAttribute('aria-pressed', String(Boolean(allowAllDirectories)));
+    toggleBtn.title = allowAllDirectories ? '已允许访问本地任意目录与磁盘路径（点击恢复限制）' : '允许访问本地任意目录与磁盘路径';
+  }
+  if (toggleText) {
+    toggleText.textContent = allowAllDirectories ? '已允许访问任意目录' : '允许访问任意目录';
+  }
+
   const container = $('#authorizedRootsList');
   if (!container) return;
   container.replaceChildren();
+
+  if (allowAllDirectories) {
+    const banner = document.createElement('div');
+    banner.className = 'workspace-allow-all-notice';
+    const badge = document.createElement('span');
+    badge.className = 'allow-all-badge';
+    badge.textContent = '全局访问已开启';
+    const hint = document.createElement('span');
+    hint.className = 'allow-all-hint';
+    hint.textContent = 'AI 可以读取与修改本地任意目录和磁盘路径';
+    banner.append(badge, hint);
+    container.appendChild(banner);
+  }
+
   if (!roots.length) {
     const empty = document.createElement('span');
     empty.className = 'task-muted';
-    empty.textContent = '尚未添加额外授权目录';
+    empty.textContent = allowAllDirectories ? '未添加特定额外授权目录（当前已开放全局访问）' : '尚未添加额外授权目录';
     container.appendChild(empty);
     return;
   }
@@ -803,6 +834,67 @@ function renderAuthorizedRoots(roots) {
   });
 }
 
+function confirmEnableAllDirectories(trigger) {
+  return new Promise((resolve) => {
+    const modalBody = $('#allowAllModalBody');
+    if (!modalBody) {
+      resolve(false);
+      return;
+    }
+    const cancelBtn = $('#cancelAllowAllBtn');
+    const confirmBtn = $('#confirmAllowAllBtn');
+
+    let resolved = false;
+    let checkInterval = null;
+
+    const cleanup = (value) => {
+      if (resolved) return;
+      resolved = true;
+      if (checkInterval) clearInterval(checkInterval);
+      cancelBtn?.removeEventListener('click', onCancel);
+      confirmBtn?.removeEventListener('click', onConfirm);
+      closeModal();
+      resolve(value);
+    };
+
+    const onCancel = () => cleanup(false);
+    const onConfirm = () => cleanup(true);
+
+    cancelBtn?.addEventListener('click', onCancel);
+    confirmBtn?.addEventListener('click', onConfirm);
+
+    openModal({
+      title: '权限确认',
+      content: modalBody,
+      trigger,
+      size: 'default'
+    });
+
+    checkInterval = setInterval(() => {
+      if (!modalState.content) {
+        clearInterval(checkInterval);
+        cleanup(false);
+      }
+    }, 120);
+  });
+}
+
+async function toggleAllowAllDirectories() {
+  const current = Boolean(state.snapshot?.settings?.allowAllDirectories);
+  if (!current) {
+    const confirmed = await confirmEnableAllDirectories($('#toggleAllowAllDirectories'));
+    if (!confirmed) return;
+  }
+  try {
+    const nextState = !current;
+    const snapshot = unwrap(await api.setAllowAllDirectories(nextState));
+    renderSnapshot(snapshot, { forceForms: true });
+    toast(nextState ? '已开启全局目录访问' : '已恢复目录访问限制', nextState ? 'AI 可访问本地任意目录与磁盘路径。' : '已重新限制为仅访问工作区与授权目录。');
+  } catch (error) {
+    toast('设置失败', error.message, 'error');
+  }
+}
+
 function renderGlobalAgents(settings, info = {}) {
   const enabled = Boolean(settings.globalAgentsEnabled);
   const path = textOr(info.path, '未能解析全局 AGENTS.md 路径');
@@ -816,6 +908,10 @@ function renderGlobalAgents(settings, info = {}) {
 }
 
 async function addAuthorizedRoot() {
+  if (state.snapshot?.settings?.allowAllDirectories) {
+    toast('已开启全局访问', '当前已允许访问任意目录，无需单独添加授权目录。', 'warn');
+    return;
+  }
   try {
     const selected = unwrap(await api.chooseWorkspace());
     if (!selected) return;
@@ -1461,6 +1557,7 @@ function bindEvents() {
   $('#deployNow').addEventListener('click', deployNow);
   $('#chooseWorkspace').addEventListener('click', chooseWorkspace);
   $('#addAuthorizedRoot').addEventListener('click', addAuthorizedRoot);
+  $('#toggleAllowAllDirectories')?.addEventListener('click', toggleAllowAllDirectories);
   $('#workspaceSafeToggle')?.addEventListener('change', async (event) => {
     const mode = event.target.checked ? 'safe' : 'trusted';
     setWorkspacePermissionMode(mode);

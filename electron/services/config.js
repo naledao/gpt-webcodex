@@ -20,7 +20,8 @@ const DEFAULTS = Object.freeze({
   firstRunCompleted: false,
   guideProgress: {},
   recentWorkspaces: [],
-  authorizedRoots: []
+  authorizedRoots: [],
+  allowAllDirectories: false
 });
 
 function normalizeWorkspacePath(value) {
@@ -59,6 +60,7 @@ function normalize(input = {}) {
     if (Object.hasOwn(input, key)) merged[key] = input[key];
   }
   merged.configVersion = 6;
+  merged.allowAllDirectories = Boolean(merged.allowAllDirectories);
   merged.globalAgentsEnabled = merged.globalAgentsEnabled === true;
   merged.permissionMode = ['safe', 'trusted'].includes(merged.permissionMode) ? merged.permissionMode : 'safe';
   merged.toolMode = 'smart';
